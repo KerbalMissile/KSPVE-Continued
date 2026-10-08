@@ -1,0 +1,12 @@
+<Project>
+  <Import Project="Directory.Build.local.props" Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
+  <PropertyGroup>
+    <!-- Your KSP install; override it in Directory.Build.local.props or with the KSPDIR environment variable. -->
+    <KSPDIR Condition="'$(KSPDIR)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program</KSPDIR>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <Version>0.2.0</Version>
+  </PropertyGroup>
+</Project>

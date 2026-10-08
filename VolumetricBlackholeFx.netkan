@@ -1,0 +1,28 @@
+{
+    "spec_version": "v1.4",
+    "identifier": "VolumetricBlackholeFx",
+    "name": "Volumetric Blackhole Fx",
+    "abstract": "Ray-marched relativistic black holes: lensing, a thick turbulent accretion disk with Doppler beaming and redshift, relativistic jets, all changed live in game (Ctrl+Alt+V).",
+    "author": "Vihaan2012-cmyk",
+    "license": "GPL-3.0",
+    "$kref": "#/ckan/github/Vihaan2012-cmyk/Volumetric-Blackhole-Fx",
+    "$vref": "#/ckan/ksp-avc",
+    "resources": {
+        "repository": "https://github.com/Vihaan2012-cmyk/Volumetric-Blackhole-Fx",
+        "bugtracker": "https://github.com/Vihaan2012-cmyk/Volumetric-Blackhole-Fx/issues"
+    },
+    "tags": [
+        "plugin",
+        "graphics",
+        "config"
+    ],
+    "depends": [
+        { "name": "ModuleManager" }
+    ],
+    "install": [
+        {
+            "find": "VolumetricBlackholeFx",
+            "install_to": "GameData"
+        }
+    ]
+}

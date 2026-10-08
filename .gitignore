@@ -1,0 +1,26 @@
+# Build output
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+
+# Built into the release zip by tools/package.ps1
+GameData/VolumetricBlackholeFx/Plugins/
+GameData/VolumetricBlackholeFx/Shaders/
+GameData/VolumetricBlackholeFx/PluginData/
+
+# Unity project generated folders
+unity/**/Library/
+unity/**/Temp/
+unity/**/Logs/
+unity/**/UserSettings/
+unity/**/obj/
+unity/**/Build/
+unity/**/*.csproj
+unity/**/*.sln
+
+# Local machine settings (KSP path overrides etc.)
+Directory.Build.local.props
+GameData/VolumetricBlackholeFx/LICENSE.txt
