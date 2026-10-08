@@ -6,11 +6,6 @@ out/
 *.suo
 .vs/
 
-# Built into the release zip by tools/package.ps1
-GameData/VolumetricBlackholeFx/Plugins/
-GameData/VolumetricBlackholeFx/Shaders/
-GameData/VolumetricBlackholeFx/PluginData/
-
 # Unity project generated folders
 unity/**/Library/
 unity/**/Temp/
@@ -23,4 +18,13 @@ unity/**/*.sln
 
 # Local machine settings (KSP path overrides etc.)
 Directory.Build.local.props
-GameData/VolumetricBlackholeFx/LICENSE.txt
+
+# Benchmark and capture output
+captures/
+bench-results/
+
+# Tool downloads
+.tools/
+
+# Agent worktrees
+.claude/

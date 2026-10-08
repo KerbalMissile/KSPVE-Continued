@@ -1,8 +1,8 @@
 {
     "spec_version": "v1.4",
     "identifier": "VolumetricBlackholeFx",
-    "name": "Volumetric Blackhole Fx",
-    "abstract": "Ray-marched relativistic black holes: lensing, a thick turbulent accretion disk with Doppler beaming and redshift, relativistic jets, all changed live in game (Ctrl+Alt+V).",
+    "name": "Volumetric Blackhole Fx (KSPVE)",
+    "abstract": "KSPVE: ray-marched relativistic black holes with volumetric accretion disks and jets, tidal disruption events, and HDR camera post-processing, all tweakable live in game (Ctrl+Alt+V).",
     "author": "Vihaan2012-cmyk",
     "license": "GPL-3.0",
     "$kref": "#/ckan/github/Vihaan2012-cmyk/Volumetric-Blackhole-Fx",
@@ -21,7 +21,7 @@
     ],
     "install": [
         {
-            "find": "VolumetricBlackholeFx",
+            "find": "KSPVE",
             "install_to": "GameData"
         }
     ]

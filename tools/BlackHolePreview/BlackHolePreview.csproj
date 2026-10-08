@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <!-- The tidal disruption model, compiled straight from KSPVE.Pure (a net48 library) so previews run the real physics. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\KSPVE.Pure\Numerics\Double3.cs" Link="Pure\Double3.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Config\CfgNode.cs" Link="Pure\CfgNode.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Config\CfgWriter.cs" Link="Pure\CfgWriter.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Config\ConfigIssue.cs" Link="Pure\ConfigIssue.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Config\SettingDefs.cs" Link="Pure\SettingDefs.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Config\SettingsSchema.cs" Link="Pure\SettingsSchema.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\Procedural\Pcg32.cs" Link="Pure\Pcg32.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\Relativity\SchwarzschildOrbit.cs" Link="Pure\SchwarzschildOrbit.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\Tde\*.cs" LinkBase="Pure\Tde" />
+  </ItemGroup>
+</Project>

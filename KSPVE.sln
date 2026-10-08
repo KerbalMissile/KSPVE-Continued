@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{BCBBF30C-DC2D-4FB3-9129-BCE5CC17987B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KSPVE.Pure", "src\KSPVE.Pure\KSPVE.Pure.csproj", "{2788E927-FD2D-4E06-BF8C-0C2252E057DD}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{478506B1-993F-4D6F-A01A-E4E940638A0D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KSPVE.Pure.Tests", "tests\KSPVE.Pure.Tests\KSPVE.Pure.Tests.csproj", "{37A4B184-AE9A-4F2D-B9F0-3E343531852C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KSPVE", "src\KSPVE\KSPVE.csproj", "{3F2F4469-3334-4941-AD5E-EE39F1025C08}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2788E927-FD2D-4E06-BF8C-0C2252E057DD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2788E927-FD2D-4E06-BF8C-0C2252E057DD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2788E927-FD2D-4E06-BF8C-0C2252E057DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2788E927-FD2D-4E06-BF8C-0C2252E057DD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{37A4B184-AE9A-4F2D-B9F0-3E343531852C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{37A4B184-AE9A-4F2D-B9F0-3E343531852C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{37A4B184-AE9A-4F2D-B9F0-3E343531852C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{37A4B184-AE9A-4F2D-B9F0-3E343531852C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3F2F4469-3334-4941-AD5E-EE39F1025C08}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3F2F4469-3334-4941-AD5E-EE39F1025C08}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3F2F4469-3334-4941-AD5E-EE39F1025C08}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3F2F4469-3334-4941-AD5E-EE39F1025C08}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{2788E927-FD2D-4E06-BF8C-0C2252E057DD} = {BCBBF30C-DC2D-4FB3-9129-BCE5CC17987B}
+		{37A4B184-AE9A-4F2D-B9F0-3E343531852C} = {478506B1-993F-4D6F-A01A-E4E940638A0D}
+		{3F2F4469-3334-4941-AD5E-EE39F1025C08} = {BCBBF30C-DC2D-4FB3-9129-BCE5CC17987B}
+	EndGlobalSection
+EndGlobal

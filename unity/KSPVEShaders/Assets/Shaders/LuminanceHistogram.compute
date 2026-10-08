@@ -1,0 +1,46 @@
+// Luminance histogram, 256 bins.
+// Bin mapping (a C# reference mirrors this):
+//   luminance = dot(rgb, float3(0.2126, 0.7152, 0.0722))
+//   if luminance < 1e-5 -> bin 0
+//   else bin = (uint)(saturate((log2(luminance) - MinLog2) * InvLog2Range) * 254 + 1)   // 1..255
+#pragma kernel ClearHistogram
+#pragma kernel BuildHistogram
+#pragma only_renderers d3d11
+
+RWStructuredBuffer<uint> _KSPVE_Histogram;
+Texture2D<float4> _KSPVE_Source;
+uint2 _KSPVE_SourceSize;
+float _KSPVE_MinLog2;
+float _KSPVE_InvLog2Range;
+
+groupshared uint gs_Histogram[256];
+
+uint KSPVELuminanceToBin(float3 rgb)
+{
+    float lum = dot(rgb, float3(0.2126, 0.7152, 0.0722));
+    if (lum < 1e-5) return 0;
+    return (uint)(saturate((log2(lum) - _KSPVE_MinLog2) * _KSPVE_InvLog2Range) * 254.0 + 1.0);
+}
+
+[numthreads(256, 1, 1)]
+void ClearHistogram(uint3 id : SV_DispatchThreadID)
+{
+    _KSPVE_Histogram[id.x] = 0;
+}
+
+[numthreads(16, 16, 1)]
+void BuildHistogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
+{
+    gs_Histogram[gi] = 0;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (id.x < _KSPVE_SourceSize.x && id.y < _KSPVE_SourceSize.y)
+    {
+        float3 rgb = _KSPVE_Source[id.xy].rgb;
+        uint bin = KSPVELuminanceToBin(rgb);
+        InterlockedAdd(gs_Histogram[bin], 1);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    InterlockedAdd(_KSPVE_Histogram[gi], gs_Histogram[gi]);
+}
