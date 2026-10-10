@@ -7,6 +7,7 @@
     "license": "GPL-3.0",
     "$kref": "#/ckan/github/Vihaan2012-cmyk/Volumetric-Blackhole-Fx",
     "$vref": "#/ckan/ksp-avc",
+    "x_netkan_version_edit": "^[vV]?(?<version>.+)$",
     "resources": {
         "repository": "https://github.com/Vihaan2012-cmyk/Volumetric-Blackhole-Fx",
         "bugtracker": "https://github.com/Vihaan2012-cmyk/Volumetric-Blackhole-Fx/issues"
