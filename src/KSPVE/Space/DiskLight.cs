@@ -33,7 +33,7 @@ internal static class DiskLight
             return;
         }
 
-        double horizon = hole.HorizonRadiusMeters > 0 ? hole.HorizonRadiusMeters : body.Radius;
+        double horizon = hole.HorizonMeters(body);
         Vector3d p = vessel.CoMD - body.position;
         double distance = p.magnitude / horizon; // horizon radii
         if (distance <= 0.0)

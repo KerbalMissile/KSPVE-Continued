@@ -81,6 +81,18 @@ public class BlackHoleSettingsTests
     }
 
     [Test]
+    public void TheHorizon_IsTheBodysRadius_UnlessTheBodyIsTheShadow()
+    {
+        Assert.That(BlackHoleSettings.HorizonMeters(0.0, 3.2e9, false), Is.EqualTo(3.2e9));
+        // The shadow of a Schwarzschild hole is sqrt(27)/2 = 2.598 horizon radii across: the body's size, with bodyIsShadow.
+        double horizon = BlackHoleSettings.HorizonMeters(0.0, 3.2e9, true);
+        Assert.That(horizon * 3.0 * Math.Sqrt(3.0) / 2.0, Is.EqualTo(3.2e9).Within(1e-6).Percent);
+        Assert.That(BlackHoleSettings.HorizonMeters(4.8e9, 3.2e9, true), Is.EqualTo(4.8e9), "an explicit horizonRadius wins");
+        SettingsValues v = BlackHoleSettings.Schema.Resolve(null, new List<ConfigIssue>());
+        Assert.That(v.Get(BlackHoleSettings.BodyIsShadow), Is.False, "by default the body's radius is the horizon");
+    }
+
+    [Test]
     public void HeaviestAbove_PicksTheBlackHole_NotOrdinaryStars()
     {
         // Kerbol, real Sun, Kcalbeloh, a gas giant.

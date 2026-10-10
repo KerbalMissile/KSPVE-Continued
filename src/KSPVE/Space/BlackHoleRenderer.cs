@@ -132,7 +132,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 CelestialBody body = hole.Body;
                 if (body == null || body.scaledBody == null) continue;
 
-                double horizonMeters = hole.HorizonRadiusMeters > 0 ? hole.HorizonRadiusMeters : body.Radius;
+                double horizonMeters = hole.HorizonMeters(body);
                 float horizon = (float)(horizonMeters * inverseScale);
                 if (horizon <= 0f) continue;
 

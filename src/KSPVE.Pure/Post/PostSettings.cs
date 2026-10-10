@@ -1,4 +1,4 @@
-﻿using KSPVE.Pure.Config;
+using KSPVE.Pure.Config;
 
 namespace KSPVE.Pure.Post;
 
@@ -64,5 +64,5 @@ public static class PostSettings
     public static readonly BoolSetting BlackHoles = Schema.Add(new BoolSetting("blackHoles", true, "Relativistic black holes with volumetric accretion disks (KSPVE_BLACKHOLE nodes)."));
     public static readonly DoubleSetting BlackHoleBrightness = Schema.Add(new DoubleSetting("blackHoleBrightness", 1.0, 0.0, 5.0, "Brightness multiplier for all accretion disks."));
     public static readonly DoubleSetting BlackHoleResolution = Schema.Add(new DoubleSetting("blackHoleResolution", 0.5, 0.25, 1.0, "Render scale of black holes: 0.5 draws them at half resolution (about 4x faster), 1 at full resolution."));
-    public static readonly BoolSetting OrbitPaths = Schema.Add(new BoolSetting("orbitPaths", true, "In the map: the next lap of every body's real path, under all the bodies' gravity."));
+    public static readonly BoolSetting OrbitPaths = Schema.Add(new BoolSetting("orbitPaths", false, "In the map: the next lap of every body's real path, under all the bodies' gravity."));
 }

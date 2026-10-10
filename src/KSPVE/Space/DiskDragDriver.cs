@@ -49,7 +49,7 @@ internal static class DiskDragDriver
 
                 DiskState disk = BlackHoles.StateOf(hole);
                 if (disk.Presence <= 0.0) continue;
-                double horizon = hole.HorizonRadiusMeters > 0 ? hole.HorizonRadiusMeters : body.Radius;
+                double horizon = hole.HorizonMeters(body);
                 Vector3d n = (Planetarium.Rotation * hole.Normal.normalized).normalized;
                 var normal = new Double3(n.x, n.y, n.z);
                 double spin = hole.Spin < 0 ? -1.0 : 1.0;

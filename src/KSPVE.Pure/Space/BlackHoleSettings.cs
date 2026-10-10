@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using KSPVE.Pure.Config;
 using KSPVE.Pure.Numerics;
@@ -17,7 +17,8 @@ public static class BlackHoleSettings
     public static readonly StringSetting Body = Schema.Add(new StringSetting("body", string.Empty, "Name of the celestial body that is the black hole."));
     public static readonly BoolSetting FindByMass = Schema.Add(new BoolSetting("findByMass", false, "Put the disk on the most massive body (at least minMass) rather than looking it up by name, so it survives planet packs renaming bodies."));
     public static readonly DoubleSetting MinMass = Schema.Add(new DoubleSetting("minMass", 5e30, 0.0, 1e40, "With findByMass: the least mass (kg) a body needs to count as the black hole; 5e30 is 2.5 Suns, so no ordinary star qualifies."));
-    public static readonly DoubleSetting HorizonRadius = Schema.Add(new DoubleSetting("horizonRadius", 0.0, 0.0, 1e15, "Event horizon radius in metres; 0 uses the body's radius."));
+    public static readonly DoubleSetting HorizonRadius = Schema.Add(new DoubleSetting("horizonRadius", 0.0, 0.0, 1e15, "Event horizon radius in metres; 0 takes it from the body's radius (see bodyIsShadow)."));
+    public static readonly BoolSetting BodyIsShadow = Schema.Add(new BoolSetting("bodyIsShadow", false, "With horizonRadius = 0: True draws the black hole exactly the body's size (the body's radius is the shadow's, so the horizon is 1/2.6 of it), as packs that size the body as the visible hole intend; False makes the body's radius the event horizon, whose shadow looks 2.6x bigger, as a real black hole's does."));
     public static readonly DoubleSetting DiskInner = Schema.Add(new DoubleSetting("diskInner", 3.0, 1.5, 100.0, "Disk inner edge in horizon radii (3 = innermost stable circular orbit)."));
     public static readonly DoubleSetting DiskOuter = Schema.Add(new DoubleSetting("diskOuter", 14.0, 2.0, 1000.0, "Disk outer edge in horizon radii."));
     public static readonly DoubleSetting DiskThickness = Schema.Add(new DoubleSetting("diskThickness", 0.12, 0.005, 0.5, "Disk half-thickness as a fraction of radius."));
@@ -53,6 +54,19 @@ public static class BlackHoleSettings
     public static readonly DoubleSetting BeamPeriod = Schema.Add(new DoubleSetting("beamPeriod", 0.0, 0.0, 1000.0, "Seconds (real time) for the jets to sweep once round the spin axis, like a pulsar's beams; 0 keeps them along the axis."));
     public static readonly BoolSetting DiskFromTde = Schema.Add(new BoolSetting("diskFromTde", false, "No disk or jets of its own: a tidal disruption event builds the configured disk from its debris over a couple of months, and the jets launch once it is half built."));
     public static readonly DoubleSetting BeamTilt = Schema.Add(new DoubleSetting("beamTilt", 30.0, 0.0, 90.0, "Angle between the sweeping jets and the spin axis, in degrees."));
+
+    /// <summary>
+    /// How much wider a Schwarzschild black hole's shadow looks than its event horizon: light passing closer than
+    /// sqrt(27)/2 horizon radii is captured.
+    /// </summary>
+    public static readonly double ShadowToHorizon = Math.Sqrt(27.0) / 2.0;
+
+    /// <summary>
+    /// The event horizon radius in metres: <paramref name="configured"/> when set, otherwise from the body's radius,
+    /// which is the horizon itself or, with <paramref name="bodyIsShadow"/>, the radius of the shadow.
+    /// </summary>
+    public static double HorizonMeters(double configured, double bodyRadius, bool bodyIsShadow) =>
+        configured > 0.0 ? configured : bodyIsShadow ? bodyRadius / ShadowToHorizon : bodyRadius;
 
     /// <summary>Index of the most massive body with at least <paramref name="minMass"/> kg, or -1 when none is that heavy.</summary>
     public static int HeaviestAbove(IReadOnlyList<double> masses, double minMass)

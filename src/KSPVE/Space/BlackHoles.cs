@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using KSPVE.Core;
@@ -20,6 +20,8 @@ internal sealed class BlackHoleDefinition
     public bool FindByMass;
     public double MinMass;
     public double HorizonRadiusMeters;
+    /// <summary>With HorizonRadiusMeters 0: the body's radius is the shadow's (the hole drawn the body's size), not the horizon's.</summary>
+    public bool BodyIsShadow;
     public double DiskInner, DiskOuter, DiskThickness;
     public double PeakTemperature, Brightness, RotationSpeed, Turbulence, Spin;
     public double ColorSaturation, Glow, PhotonRing, Particles, Debris;
@@ -45,6 +47,7 @@ internal sealed class BlackHoleDefinition
         FindByMass = v.Get(BlackHoleSettings.FindByMass),
         MinMass = v.Get(BlackHoleSettings.MinMass),
         HorizonRadiusMeters = v.Get(BlackHoleSettings.HorizonRadius),
+        BodyIsShadow = v.Get(BlackHoleSettings.BodyIsShadow),
         DiskInner = v.Get(BlackHoleSettings.DiskInner),
         DiskOuter = v.Get(BlackHoleSettings.DiskOuter),
         DiskThickness = v.Get(BlackHoleSettings.DiskThickness),
@@ -113,6 +116,9 @@ internal sealed class BlackHoleDefinition
         .Add(BlackHoleSettings.Steps.Key, Steps.ToString(CultureInfo.InvariantCulture));
 
     private static string Num(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+
+    /// <summary>The event horizon radius in metres (from the body's radius unless horizonRadius is set).</summary>
+    public double HorizonMeters(CelestialBody body) => BlackHoleSettings.HorizonMeters(HorizonRadiusMeters, body.Radius, BodyIsShadow);
 
     /// <summary>
     /// The body, looked up once the planetary system exists (null at the main menu). With findByMass it is the most

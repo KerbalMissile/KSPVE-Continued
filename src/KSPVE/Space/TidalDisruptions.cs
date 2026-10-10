@@ -122,7 +122,7 @@ internal static class TidalDisruptions
             return;
         }
 
-        double horizon = hole.HorizonRadiusMeters > 0 ? hole.HorizonRadiusMeters : body.Radius;
+        double horizon = hole.HorizonMeters(body);
         string key = string.Join("|", save, hole.BodyName, horizon.ToString("R", CultureInfo.InvariantCulture),
             _state.StartUt.Value.ToString("R", CultureInfo.InvariantCulture), _parameters.PhysicsKey());
         if (key != _key)
