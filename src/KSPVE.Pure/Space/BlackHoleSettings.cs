@@ -25,6 +25,7 @@ public static class BlackHoleSettings
     public static readonly DoubleSetting PeakTemperature = Schema.Add(new DoubleSetting("peakTemperature", 6000.0, 1000.0, 100000.0, "Hottest disk temperature in kelvin, before relativistic shifts."));
     public static readonly DoubleSetting Brightness = Schema.Add(new DoubleSetting("brightness", 0.9, 0.0, 20.0, "Disk brightness."));
     public static readonly DoubleSetting RotationSpeed = Schema.Add(new DoubleSetting("rotationSpeed", 1.0, 0.0, 100.0, "Spin speed of the disk; 1 turns it once every ~8 s (the whole disk turns together)."));
+    public static readonly DoubleSetting DiskStreaks = Schema.Add(new DoubleSetting("diskStreaks", 0.0, 0.0, 1.0, "Seen from above, the disk's gas drawn out along its orbit into long swirling streaks (the inner disk orbits faster and shears it): 0 keeps the cloudy disk from every side, 1 gives full streaks looking straight down. They fade in from 10 degrees above the disk; from the side it is unchanged."));
     public static readonly DoubleSetting Turbulence = Schema.Add(new DoubleSetting("turbulence", 0.8, 0.0, 1.0, "Clumpy, streaky structure in the disk."));
     public static readonly DoubleSetting Spin = Schema.Add(new DoubleSetting("spin", 1.0, -1.0, 1.0, "Orbit direction about the normal: positive prograde, negative retrograde."));
     public static readonly DoubleSetting NormalX = Schema.Add(new DoubleSetting("normalX", 0.0, -1e6, 1e6, "Disk normal, X (inertial frame)."));
@@ -67,6 +68,22 @@ public static class BlackHoleSettings
     /// </summary>
     public static double HorizonMeters(double configured, double bodyRadius, bool bodyIsShadow) =>
         configured > 0.0 ? configured : bodyIsShadow ? bodyRadius / ShadowToHorizon : bodyRadius;
+
+    /// <summary>The streak look fades in from this height above the disk's plane (degrees, seen from the hole)...</summary>
+    public const double StreaksFromDegrees = 10.0;
+    /// <summary>...growing smoothly to all of it here.</summary>
+    public const double StreaksFullDegrees = 85.0;
+
+    /// <summary>
+    /// How much of the streak look a view gets: <paramref name="streaks"/> (diskStreaks), faded in smoothly with the camera's
+    /// height above the disk's plane as seen from the hole (<paramref name="elevationDegrees"/>, 0 edge-on, 90 straight down).
+    /// </summary>
+    public static double StreakView(double streaks, double elevationDegrees)
+    {
+        double t = (elevationDegrees - StreaksFromDegrees) / (StreaksFullDegrees - StreaksFromDegrees);
+        t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
+        return streaks * t * t * (3.0 - 2.0 * t);
+    }
 
     /// <summary>Index of the most massive body with at least <paramref name="minMass"/> kg, or -1 when none is that heavy.</summary>
     public static int HeaviestAbove(IReadOnlyList<double> masses, double minMass)

@@ -93,6 +93,26 @@ public class BlackHoleSettingsTests
     }
 
     [Test]
+    public void Streaks_FadeInSlowlyAsTheViewRisesOverTheDisk()
+    {
+        Assert.That(BlackHoleSettings.StreakView(1.0, 0.0), Is.EqualTo(0.0), "edge-on: the cloudy disk");
+        Assert.That(BlackHoleSettings.StreakView(1.0, 10.0), Is.EqualTo(0.0));
+        Assert.That(BlackHoleSettings.StreakView(1.0, 47.5), Is.EqualTo(0.5).Within(1e-9), "half way up, half the look");
+        Assert.That(BlackHoleSettings.StreakView(1.0, 90.0), Is.EqualTo(1.0), "straight down: all of it");
+        Assert.That(BlackHoleSettings.StreakView(0.4, 90.0), Is.EqualTo(0.4).Within(1e-9));
+        double previous = 0.0;
+        for (double e = 0.0; e <= 90.0; e += 1.0)
+        {
+            double v = BlackHoleSettings.StreakView(1.0, e);
+            Assert.That(v, Is.GreaterThanOrEqualTo(previous));
+            Assert.That(v - previous, Is.LessThan(0.03), $"no sudden jump at {e} degrees");
+            previous = v;
+        }
+        SettingsValues defaults = BlackHoleSettings.Schema.Resolve(null, new List<ConfigIssue>());
+        Assert.That(defaults.Get(BlackHoleSettings.DiskStreaks), Is.EqualTo(0.0), "off unless a config asks for it");
+    }
+
+    [Test]
     public void HeaviestAbove_PicksTheBlackHole_NotOrdinaryStars()
     {
         // Kerbol, real Sun, Kcalbeloh, a gas giant.

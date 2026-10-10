@@ -47,6 +47,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     private static readonly int ForwardId = Shader.PropertyToID("_KSPVE_BHForward");
     private static readonly int BufferId = Shader.PropertyToID("_KSPVE_BHBuffer");
     private static readonly int FormId = Shader.PropertyToID("_KSPVE_BHForm");
+    private static readonly int StreakId = Shader.PropertyToID("_KSPVE_BHStreak");
 
     // The tidal disruption event (BlackHole.shader, TdeSample).
     private const int TdeExtraSteps = 200;
@@ -168,6 +169,9 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 block.SetVector(DiskId, new Vector4((float)disk.ShapeInner, (float)disk.ShapeOuter, (float)disk.Thickness, (float)hole.Turbulence));
                 block.SetVectorArray(OccludersId, _occluders);
                 block.SetVector(MaskId, new Vector4((float)disk.MaskInner, (float)disk.MaskOuter, (float)disk.MaskSoftness, 0f));
+                // How high the camera sits above the disk's plane, seen from the hole: the streak look fades in with it.
+                double elevation = Math.Asin(Math.Min(1.0, Math.Abs(Vector3.Dot(-center.normalized, normal)))) * 180.0 / Math.PI;
+                block.SetVector(StreakId, new Vector4((float)BlackHoleSettings.StreakView(hole.DiskStreaks, elevation), 0f, 0f, 0f));
                 block.SetVector(FormId, new Vector4((float)disk.Presence, (float)disk.Brightness, (float)disk.Spiral, (float)disk.JetHeads));
                 block.SetVector(LookId, new Vector4((float)hole.PeakTemperature, (float)(hole.Brightness * engine.Post.BlackHoleBrightness), rotation, (float)(time % 10000.0)));
                 // The swirl keeps the configured pitch and flow as a young jet grows out to its full length.

@@ -24,6 +24,8 @@ internal sealed class BlackHoleDefinition
     public bool BodyIsShadow;
     public double DiskInner, DiskOuter, DiskThickness;
     public double PeakTemperature, Brightness, RotationSpeed, Turbulence, Spin;
+    /// <summary>0..1: the disk drawn as swirling streaks when seen from above (BlackHoleSettings.StreakView).</summary>
+    public double DiskStreaks;
     public double ColorSaturation, Glow, PhotonRing, Particles, Debris;
     public double Jets, JetLength, JetWidth, JetSpeed, JetSpiral, JetTurns, JetFlow, JetAbsorb;
     public Vector3d Normal;
@@ -55,6 +57,7 @@ internal sealed class BlackHoleDefinition
         Brightness = v.Get(BlackHoleSettings.Brightness),
         RotationSpeed = v.Get(BlackHoleSettings.RotationSpeed),
         Turbulence = v.Get(BlackHoleSettings.Turbulence),
+        DiskStreaks = v.Get(BlackHoleSettings.DiskStreaks),
         Spin = v.Get(BlackHoleSettings.Spin),
         ColorSaturation = v.Get(BlackHoleSettings.ColorSaturation),
         Glow = v.Get(BlackHoleSettings.Glow),
@@ -94,6 +97,7 @@ internal sealed class BlackHoleDefinition
         .Add(BlackHoleSettings.RotationSpeed.Key, Num(RotationSpeed))
         .Add(BlackHoleSettings.Spin.Key, Num(Spin))
         .Add(BlackHoleSettings.Turbulence.Key, Num(Turbulence))
+        .Add(BlackHoleSettings.DiskStreaks.Key, Num(DiskStreaks))
         .Add(BlackHoleSettings.DiskThickness.Key, Num(DiskThickness))
         .Add(BlackHoleSettings.DiskOuter.Key, Num(DiskOuter))
         .Add(BlackHoleSettings.Particles.Key, Num(Particles))

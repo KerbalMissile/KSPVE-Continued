@@ -235,6 +235,7 @@ internal sealed class SettingsWindow : MonoBehaviour
         h.DiskOuter = Slider("    Disk size (outer edge, horizon radii)", h.DiskOuter, h.DiskInner + 1, 40);
         h.DiskThickness = Slider("    Thickness", h.DiskThickness, 0.02, 0.4);
         h.Turbulence = Slider("    Puffiness / turbulence", h.Turbulence, 0, 1);
+        h.DiskStreaks = Slider("    Swirling streaks seen from above", h.DiskStreaks, 0, 1);
         h.Particles = Slider("    Sparks", h.Particles, 0, 2);
         h.Debris = Slider("    Debris", h.Debris, 0, 1);
         h.Jets = Slider("    Jets (0 = off)", h.Jets, 0, 5);

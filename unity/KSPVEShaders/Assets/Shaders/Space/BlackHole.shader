@@ -1,4 +1,4 @@
-﻿Shader "Hidden/KSPVE/Space/BlackHole"
+Shader "Hidden/KSPVE/Space/BlackHole"
 {
     // Relativistic black hole with a thick, puffy, self-shadowed volumetric accretion disk that spins as a whole,
     // with sparks and debris riding in it (catalog #80, #81). A tidal disruption event, when a save runs one, is drawn in
@@ -31,6 +31,7 @@
                                           // z: spiral shocks while it forms 0..1, w: glow of the jet heads punching out 0..1
             #define BH_OCCLUDERS 8
             float4 _KSPVE_BHOccluders[BH_OCCLUDERS]; // bodies that may be in front: xyz centre relative to the eye, w radius (horizon radii; 0 = none)
+            float4 _KSPVE_BHStreak;       // x: how much of the streak look this view gets 0..1 (BlackHoleSettings.StreakView)
             float4 _KSPVE_BHMask;         // a forming disk fills only this band (horizon radii): x inner, y outer, z edge width (0 = all of it)
 
             // A tidal disruption event (KSPVE.Pure.Space.Tde.TidalDisruption, one TdeFrame), in horizon radii around the
@@ -65,7 +66,23 @@
             static const float CloudScale = 0.45;       // puffy lumps per horizon radius
             static const float EmissionStrength = 3.6;  // the plasma's own thermal glow
             static const float ParticleCell = 0.5;      // horizon radii per particle cell
-            static const float JetBase = 12.0;          // spiral jets: radius ~ (z + JetBase)^0.55, thick from the base (BlackHoleSettings.JetBase)
+            static const float JetBase = 12.0;
+
+            // The disk seen from above (diskStreaks): its gas drawn out along its orbit into long arcs winding into a
+            // trailing spiral, finely striated, with dark lanes between. tools/BlackHolePreview tunes these.
+            static const float StreakStretch = 30.0;    // arcs this many times longer along the orbit than across
+            static const float StreakRing = 2.0;        // noise circle size: how many arcs go round
+            static const float StreakRadial = 1.6;      // bands across the disk, per horizon radius (times CloudScale)
+            static const float StreakWinding = 5.0;     // spiral winding per e-fold of radius
+            static const float StreakFine = 6.0;        // fine striations, this much finer than the bands
+            static const float StreakFineWeight = 0.85;
+            static const float StreakArcLo = 0.25, StreakArcHi = 0.6;
+            static const float StreakGap = 0.85;        // how dark the lanes between arcs are
+            static const float StreakHeat = 0.8;        // the arcs run hotter (whiter)
+            static const float StreakExposure = 0.35;   // face on the whole glowing column is in view: toned down so the arcs read
+            static const float StreakSaturation = 2.8;  // softer colour from above: white-blue arcs rather than cyan
+            static const float StreakSoftRim = 0.8;     // the inner rim fades in softly round the dark centre
+            static const float StreakGlowDim = 0.8, StreakRingDim = 1.0;   // glow and photon ring fainter from above          // spiral jets: radius ~ (z + JetBase)^0.55, thick from the base (BlackHoleSettings.JetBase)
 
             static const float2 Corners[6] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(0, 1), float2(1, 0), float2(1, 1) };
 
@@ -141,11 +158,13 @@
             }
 
             // Chroma boost around luminance (blackbody colours are pale; the look wants them vivid).
-            float3 Saturate(float3 c)
+            float3 SaturateBy(float3 c, float s)
             {
                 float l = dot(c, float3(0.2126, 0.7152, 0.0722));
-                return max(l + (c - l) * _KSPVE_BHExtra.x, 0.0);
+                return max(l + (c - l) * s, 0.0);
             }
+
+            float3 Saturate(float3 c) { return SaturateBy(c, _KSPVE_BHExtra.x); }
 
             float3 LinearToSrgb(float3 c)
             {
@@ -192,10 +211,11 @@
             }
 
             // Shape of the disk at x, without the hot clumps; the light march uses this alone.
-            // pw: the point's warped position in the rotating frame, for the hot clumps.
-            float DiskShape(float3 x, out float r, out float3 pw)
+            // pw: the point's warped position in the rotating frame, for the hot clumps; ps: its place in the streak pattern.
+            float DiskShapeStreaks(float3 x, out float r, out float3 pw, out float3 ps)
             {
                 pw = 0.0;
+                ps = 0.0;
                 float3 pd = ToDiskFrame(x, r);
                 float height = pd.z;
                 float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y;
@@ -203,22 +223,38 @@
                 float ht = _KSPVE_BHDisk.z * r;
                 if (abs(height) > 3.0 * ht) return 0.0;
                 float outerFade = 1.0 - smoothstep(outer * 0.35, outer, r); // outer disk thins into translucent wisps
-                float radial = smoothstep(inner * 0.85, inner * 1.1, r) * outerFade * outerFade;
+                float face = _KSPVE_BHStreak.x, cloud = 1.0 - face;
+                // Seen from above the inner rim fades in softly, so the dark centre has a soft edge.
+                float radial = smoothstep(inner * 0.85, inner * (1.1 + StreakSoftRim * face), r) * outerFade * outerFade;
                 if (_KSPVE_BHMask.z > 0.0)
                     radial *= smoothstep(_KSPVE_BHMask.x - _KSPVE_BHMask.z, _KSPVE_BHMask.x + _KSPVE_BHMask.z, r)
                         * (1.0 - smoothstep(_KSPVE_BHMask.y - _KSPVE_BHMask.z, _KSPVE_BHMask.y + _KSPVE_BHMask.z, r));
                 if (radial <= 0.0) return 0.0;
                 float turbulence = _KSPVE_BHDisk.w;
 
-                // True 3D position in the rotating frame, with light turbulent offsets.
-                float3 pc = pd * CloudScale;
-                float3 w = float3(Noise3(pc * 0.5 + 11.3), Noise3(pc * 0.5 + 27.1), Noise3(pc * 0.5 + 41.7)) - 0.5;
-                pw = pc + w * 0.5;
-
                 // Puffy, irregular surface: big rounded lumps with smaller billows on them bulge the disk's half-height.
-                float warp = (Noise3(pc * 0.3 + 3.3) - 0.5) * 0.8;
-                float lumps = Fbm(pw);
-                float billows = 1.0 - abs(2.0 * Noise3(pw * 2.7 + 5.1) - 1.0);
+                float warp = 0.0, lumps = 0.0, billows = 0.0;
+                if (cloud > 0.0)
+                {
+                    // True 3D position in the rotating frame, with light turbulent offsets.
+                    float3 pc = pd * CloudScale;
+                    float3 w = float3(Noise3(pc * 0.5 + 11.3), Noise3(pc * 0.5 + 27.1), Noise3(pc * 0.5 + 41.7)) - 0.5;
+                    pw = pc + w * 0.5;
+                    warp = (Noise3(pc * 0.3 + 3.3) - 0.5) * 0.8 * cloud;
+                    lumps = Fbm(pw) * cloud;
+                    billows = (1.0 - abs(2.0 * Noise3(pw * 2.7 + 5.1) - 1.0)) * cloud;
+                }
+                if (face > 0.0)
+                {
+                    // Seen from above, the gas is sheared along its orbit (the inner disk orbits faster): its clumps are
+                    // drawn out into long arcs winding into a trailing spiral. The noise runs round a circle (no seam) whose
+                    // size sets how many arcs go round; the radius runs along the third axis, so neighbouring orbits differ.
+                    float a = atan2(pd.y, pd.x) + _KSPVE_BHNormal.w * StreakWinding * log(r / inner);
+                    float ring = StreakRing * rsqrt(1.0 + StreakStretch);
+                    ps = float3(ring * cos(a), ring * sin(a), (r * StreakRadial + 0.8 * height) * CloudScale);
+                    lumps += Fbm(ps) * face;
+                    billows += (1.0 - abs(2.0 * Noise3(ps * 2.7 + 5.1) - 1.0)) * face;
+                }
                 float surface = 0.5 + turbulence * (1.3 * lumps + 0.3 * billows);
                 float hAbs = abs(height / ht - warp);
                 float body = 1.0 - smoothstep(surface - 0.3, surface, hAbs); // 1 inside, rounded edge at the surface
@@ -230,6 +266,12 @@
                 }
 
                 return body * radial * (DensityScale / r) * _KSPVE_BHForm.x;
+            }
+
+            float DiskShape(float3 x, out float r, out float3 pw)
+            {
+                float3 ps;
+                return DiskShapeStreaks(x, r, pw, ps);
             }
 
             // Sparks of white-hot matter and dark chunks of debris riding in the disk. One candidate per cell of a grid in
@@ -351,10 +393,26 @@
             {
                 float r;
                 float3 pw;
-                float shape = DiskShape(x, r, pw);
+                float3 ps;
+                float shape = DiskShapeStreaks(x, r, pw, ps);
                 if (shape < 1e-3) return;
-                float heat = Fbm(pw * 1.3 + 9.1);
+                float face = _KSPVE_BHStreak.x;
+                // From above the streak pattern varies across the disk only, not up through it, so it stays smooth.
+                float3 flat = float3(ps.xy, r * StreakRadial * CloudScale);
+                float streakHeat = face > 0.0 ? Fbm(flat * 1.3 + 9.1) : 0.0;
+                float heat = (face < 1.0 ? Fbm(pw * 1.3 + 9.1) * (1.0 - face) : 0.0) + streakHeat * face;
                 float density = shape * (0.6 + 0.4 * heat); // hot clumps inside a continuous body: no holes
+                float lane = 1.0;
+                if (face > 0.0)
+                {
+                    // From above: a few big bright arcs, finely striated along the orbit, with dark lanes between them. The gas
+                    // is too thick for thinner lanes to show, so the light dims with them too.
+                    float arcs = smoothstep(StreakArcLo, StreakArcHi, streakHeat);
+                    float fine = 1.0 - abs(2.0 * Noise3(float3(flat.xy * 1.5, flat.z * StreakFine) + 7.7) - 1.0);
+                    lane = 1.0 - face * StreakGap * (1.0 - arcs * (1.0 - StreakFineWeight + StreakFineWeight * fine * fine));
+                    density *= lane;
+                    lane *= 1.0 - face * (1.0 - StreakExposure);
+                }
 
                 // Self-shadowing towards the hot inner disk: lit flanks face the hole, crevices and far sides fall dark.
                 // Two shape-only samples (average clump density) keep this cheap.
@@ -376,7 +434,7 @@
                 float3 n = _KSPVE_BHNormal.xyz;
                 float peak = _KSPVE_BHLook.x;
                 float knots = smoothstep(0.45, 0.75, heat) * _KSPVE_BHDisk.w;
-                float temperature = DiskTemperature(r, inner, peak) * (0.9 + 0.3 * knots);
+                float temperature = DiskTemperature(r, inner, peak) * (0.9 + (0.3 + StreakHeat * face) * knots);
                 float3 orbit = normalize(cross(n, x - dot(x, n) * n)) * _KSPVE_BHNormal.w;
                 float beta = min(sqrt(0.5 / max(r - 1.0, 0.05)), 0.95);
                 float gamma = rsqrt(1.0 - beta * beta);
@@ -388,14 +446,15 @@
                 // Hot plasma in its own blackbody colour at the Doppler-shifted temperature: white-hot where it races towards
                 // you, then yellow, gold and deep orange further out. Brighter in the hot clumps, darker in the shadowed
                 // crevices, plus light from the inner disk scattered off the bulges.
-                float3 hot = Saturate(Blackbody(temperature * g));
+                // From above the colour is softer: the bright streaks go white-blue rather than cyan.
+                float3 hot = SaturateBy(Blackbody(temperature * g), lerp(_KSPVE_BHExtra.x, StreakSaturation, face));
                 float shade = 0.3 + 0.7 * lightTransmittance;
                 float3 thermal = hot * (pow(temperature / peak, 3.0) * EmissionStrength * (0.6 + 1.4 * knots) * shade);
                 float3 scattered = hot * (incident * lightTransmittance * phase * 0.4);
-                color += transmittance * (thermal + scattered) * (_KSPVE_BHForm.y * beaming * density * dt);
+                color += transmittance * (thermal + scattered) * (_KSPVE_BHForm.y * beaming * density * lane * dt);
                 transmittance *= exp(-density * Absorb * dt);
 
-                AccumulateParticles(x, x + v * dt, traveled, saturate(shape / 5.0), temperature, g, color, transmittance);
+                AccumulateParticles(x, x + v * dt, traveled, saturate(shape / 5.0) * (1.0 - face * (1.0 - StreakExposure)), temperature, g, color, transmittance);
             }
 
             // --- the tidal disruption event -------------------------------------------------------------
@@ -716,7 +775,7 @@
                     }
 
                     // Glow: hot, thin plasma filling the space around the hole (lensed along with everything else).
-                    color += transmittance * glowColor * (_KSPVE_BHExtra.y * 0.03 * exp(-(r - 1.0) / 2.2)) * dt;
+                    color += transmittance * glowColor * (_KSPVE_BHExtra.y * (1.0 - StreakGlowDim * _KSPVE_BHStreak.x) * 0.03 * exp(-(r - 1.0) / 2.2)) * dt;
                     if (!pulsar) AccumulateDisk(x, v, dt, traveled, color, transmittance);
                     AccumulateJets(x, v, dt, color, transmittance);
                     if (tdeK > 0.0 || any(tdeGlow > 0.0))
@@ -744,7 +803,7 @@
                 if (!captured && !pulsar)
                 {
                     float d = (rMin - 1.5) / 0.045;
-                    color += float3(0.9, 0.95, 1.0) * (_KSPVE_BHExtra.z * 8.0 * exp(-d * d));
+                    color += float3(0.9, 0.95, 1.0) * (_KSPVE_BHExtra.z * (1.0 - StreakRingDim * _KSPVE_BHStreak.x) * 8.0 * exp(-d * d));
                 }
 
                 // KSP renders in gamma space, so write sRGB-encoded colour.
