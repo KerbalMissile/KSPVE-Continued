@@ -43,6 +43,7 @@ internal sealed class BlackHoleDefinition
     public double OuterGlow;
     public double ColorSaturation, Glow, PhotonRing, Particles, Debris;
     public double Jets, JetLength, JetWidth, JetSpeed, JetSpiral, JetTurns, JetFlow, JetAbsorb;
+    public double JetKnots, JetKnotStart, JetKnotSpacing, JetKnotGrowth;
     public Vector3d Normal;
     public int Steps;
     public double BoundRadius;
@@ -198,6 +199,10 @@ internal sealed class BlackHoleDefinition
         JetTurns = v.Get(BlackHoleSettings.JetTurns),
         JetFlow = v.Get(BlackHoleSettings.JetFlow),
         JetAbsorb = v.Get(BlackHoleSettings.JetAbsorb),
+        JetKnots = v.Get(BlackHoleSettings.JetKnots),
+        JetKnotStart = v.Get(BlackHoleSettings.JetKnotStart),
+        JetKnotSpacing = v.Get(BlackHoleSettings.JetKnotSpacing),
+        JetKnotGrowth = v.Get(BlackHoleSettings.JetKnotGrowth),
         Debris = v.Get(BlackHoleSettings.Debris),
         DiskDrag = v.Get(BlackHoleSettings.DiskDrag),
         DiskDragTimescale = v.Get(BlackHoleSettings.DiskDragTimescale),
@@ -345,6 +350,10 @@ internal sealed class BlackHoleDefinition
         .Add(BlackHoleSettings.JetTurns.Key, Num(JetTurns))
         .Add(BlackHoleSettings.JetFlow.Key, Num(JetFlow))
         .Add(BlackHoleSettings.JetAbsorb.Key, Num(JetAbsorb))
+        .Add(BlackHoleSettings.JetKnots.Key, Num(JetKnots))
+        .Add(BlackHoleSettings.JetKnotStart.Key, Num(JetKnotStart))
+        .Add(BlackHoleSettings.JetKnotSpacing.Key, Num(JetKnotSpacing))
+        .Add(BlackHoleSettings.JetKnotGrowth.Key, Num(JetKnotGrowth))
         .Add(BlackHoleSettings.DiskLight.Key, Num(DiskLight))
         .Add(BlackHoleSettings.DiskDrag.Key, Bool(DiskDrag))
         .Add(BlackHoleSettings.DiskDragMaxAccel.Key, Num(DiskDragMaxAccel))
@@ -388,6 +397,10 @@ internal sealed class BlackHoleDefinition
         JetTurns = Math.Max(JetTurns, 0.0);
         JetFlow = Math.Max(JetFlow, 0.0);
         JetAbsorb = Math.Max(JetAbsorb, 0.0);
+        JetKnots = Math.Min(Math.Max(JetKnots, 0.0), 1.0);
+        JetKnotStart = Math.Min(Math.Max(JetKnotStart, 0.0), 1.0);
+        JetKnotSpacing = Math.Max(JetKnotSpacing, 0.001);
+        JetKnotGrowth = Math.Max(JetKnotGrowth, 0.0);
         DiskLight = Math.Max(DiskLight, 0.0);
         DiskDragMaxAccel = Math.Max(DiskDragMaxAccel, 0.0);
         DiskBuffeting = Math.Max(DiskBuffeting, 0.0);

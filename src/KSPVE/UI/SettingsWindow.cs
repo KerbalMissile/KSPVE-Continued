@@ -314,6 +314,13 @@ internal sealed class SettingsWindow : MonoBehaviour
             if (h.JetSpiral > 0) h.JetTurns = Slider("      Swirl turns", h.JetTurns, 0, 20, "0.0");
             h.JetFlow = Slider("      Flow (horizon radii/s)", h.JetFlow, 0, 200, "0");
             h.JetAbsorb = Slider("      Volume (absorption)", h.JetAbsorb, 0, 3);
+            h.JetKnots = Slider("      Breaks into blobs (0 = continuous)", h.JetKnots, 0, 1);
+            if (h.JetKnots > 0)
+            {
+                h.JetKnotStart = Slider("        Where it breaks (fraction of length)", h.JetKnotStart, 0, 1);
+                h.JetKnotSpacing = Slider("        Blob spacing", h.JetKnotSpacing, 0.02, 0.5, "0.000");
+                h.JetKnotGrowth = Slider("        Blobs swell by", h.JetKnotGrowth, 0, 4);
+            }
             h.JetColor = ColorSliders("      Jet colour", h.JetColor);
         }
         h.Pulsar = Toggle("    Pulsar: no shadow, lensing or disk, only the jets as beams", h.Pulsar);

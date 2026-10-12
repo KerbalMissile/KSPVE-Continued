@@ -29,6 +29,9 @@ internal static partial class Program
         var ci = System.Globalization.CultureInfo.InvariantCulture;
         return new Vector3(float.Parse(p[0], ci), float.Parse(p[1], ci), float.Parse(p[2], ci));
     }
+    // Jets breaking into blobs (jetKnots, jetKnotStart, jetKnotSpacing, jetKnotGrowth).
+    static float JetKnots = EnvFloat("BH_JETKNOTS", 0f), JetKnotStart = EnvFloat("BH_JETKNOTSTART", 0.3f),
+        JetKnotSpacing = EnvFloat("BH_JETKNOTSPACING", 0.1f), JetKnotGrowth = EnvFloat("BH_JETKNOTGROWTH", 1f);
     static float PeakK = EnvFloat("BH_PEAK", 40000f), Saturation = EnvFloat("BH_SAT", 3.4f), Brightness = EnvFloat("BH_BRIGHT", 3.5f);   // an object's config may set them
     static float EnvFloat(string name, float fallback) =>
         float.TryParse(Environment.GetEnvironmentVariable(name), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : fallback;
@@ -54,8 +57,10 @@ internal static partial class Program
     static readonly float JetFlow = JetFlowMid * 0.45f / MathF.Pow(JetLength * 0.5f, 0.55f);
     // With the spiral the jet is a thick tube from its rounded base: its radius follows (z + JetBase)^0.55.
     const float JetBase = 12f;
+    // Blobs (jetKnots) reach a quarter further out and swell well past the jet's width.
+    static readonly float KnotLen = JetKnots > 0f ? 1.25f : 1f, KnotWide = JetKnots > 0f ? 2.5f + JetKnotGrowth : 1f;
     static readonly float BaseBound = MathF.Max(Outer * 1.25f + 8f, JetStrength > 0
-        ? MathF.Sqrt(JetLength * JetLength + MathF.Pow(3f * JetWidth * MathF.Pow(JetLength + JetBase * JetSpiral, 0.55f), 2f)) + 4f : 0f);
+        ? MathF.Sqrt(Sq(JetLength * KnotLen) + MathF.Pow(3f * JetWidth * KnotWide * MathF.Pow(JetLength * KnotLen + JetBase * JetSpiral, 0.55f), 2f)) + 4f : 0f);
     static float Bound = BaseBound;
     // The disk and jets as they are now (BlackHoles.StateOf): as configured, or as far as a tidal disruption has built them.
     static float DiskPresence = 1f, DiskBright = 1f, InnerNow = Inner, OuterNow = Outer, ThickNow = Thickness;
@@ -209,10 +214,10 @@ internal static partial class Program
             float dt = Math.Clamp(MathF.Min(0.08f * r, 0.35f * MathF.Max(nearPlane, 0.3f * Thickness * r)), 0.004f, dtCap);
             // Fine steps inside the cloud layer: about three per clump out where the clumps are big.
             if (nearPlane < 5f * ThickNow * r && r < OuterNow * 1.2f) dt = MathF.Min(dt, 0.2f * grain * MathF.Min(grain, 3f));
-            if (JetNow > 0 && nearPlane > 1.1f * (1f - JetSpiral) && nearPlane < JetLengthNow)                       // and inside the jets
+            if (JetNow > 0 && nearPlane > 1.1f * (1f - JetSpiral) && nearPlane < JetLengthNow * (JetKnots > 0f ? 1.25f : 1f))   // and inside the jets
             {
                 float jetR = JetWidth * MathF.Pow(nearPlane + JetBase * JetSpiral, 0.55f);
-                if ((x - Vector3.Dot(x, N) * N).Length() < 3f * jetR) dt = MathF.Min(dt, (0.35f - 0.15f * JetSpiral) * jetR);
+                if ((x - Vector3.Dot(x, N) * N).Length() < (JetKnots > 0f ? 7f : 3f) * jetR) dt = MathF.Min(dt, (0.35f - 0.15f * JetSpiral) * jetR);
             }
             float tdeK = 0f, envK = 0f; Vector3 tdeEmit = Vector3.Zero, tdeGlow = Vector3.Zero, envEmit = Vector3.Zero;
             if (TdeOn) dt = MathF.Min(dt, MathF.Max(TdeSample(x, Vector3.Normalize(v), traveled, out tdeK, out tdeEmit, out tdeGlow, out envK, out envEmit), 0.0005f));
@@ -486,11 +491,12 @@ internal static partial class Program
             color += transmittance * new Vector3(0.75f, 0.88f, 1f) * (JetHeads * JetNow * 0.25f * head * dt / hr);
         }
         float start = 1.1f * (1f - JetSpiral);                                                       // the spiral tube starts at the hole
-        if (az < start || az > JetLengthNow) return;
+        float knotAmount = JetKnots;
+        if (az < start || az > JetLengthNow * (knotAmount > 0f ? 1.25f : 1f)) return;
         Vector3 perp = x - z * N;
         float rho = perp.Length();
         float R = JetWidth * MathF.Pow(az + JetBase * JetSpiral, 0.55f);
-        if (rho > 3f * R) return;
+        if (rho > (knotAmount > 0f ? 7f : 3f) * R) return;
         float s = rho / R;
         float tail = (1f - SmoothStep(JetLengthNow * 0.6f, JetLengthNow, az)) * MathF.Pow(2f / MathF.Max(az, 2f), 0.6f);
         float along = SmoothStep(1.1f, 2.5f, az) * tail;
@@ -522,6 +528,42 @@ internal static partial class Program
         float spiralGas = 4f * column * (1f - glowFade * 0.4f) * (0.5f + n);
         float density = along * plain + (tail * spiralGlow - along * plain) * JetSpiral;
         float gas = along * plain + (tail * spiralGas - along * plain) * JetSpiral;
+        if (knotAmount > 0f)
+        {
+            // Past the break the beam comes apart into a chain of blobs (plasmoids) streaming out with the flow, each a
+            // turbulent puff with a brighter bow-shaped front, swelling and fading as it goes. They are spaced in z^0.45, so
+            // further out they are further apart, as the flow speeds up.
+            float len = JetLengthNow;
+            float breakAt = JetKnotStart * len;
+            float knotWeight = knotAmount * SmoothStep(breakAt * 0.85f, breakAt * 1.15f + 1f, az);
+            float side = z < 0f ? 0.37f : 0f;
+            float spacing = MathF.Max(JetKnotSpacing, 1e-3f) * MathF.Pow(len, 0.45f);
+            float moved = JetFlow * Time;
+            float k0 = MathF.Floor((MathF.Pow(az, 0.45f) - moved) / spacing - side);
+            float blob = 0f;
+            for (int j = 0; j < 2; j++)   // the blobs either side, so big ones overlap rather than cut off
+            {
+                float kq = k0 + j;
+                float zc = MathF.Pow(MathF.Max((kq + side) * spacing + moved, 1e-3f), 1f / 0.45f);
+                float seed = kq * 12.9898f + side * 78.233f;
+                float hb = Frac(MathF.Sin(seed) * 43758.5453f), hx = Frac(MathF.Sin(seed + 1.7f) * 43758.5453f), hy = Frac(MathF.Sin(seed + 3.1f) * 43758.5453f);
+                float Rb = JetWidth * MathF.Pow(zc + JetBase * JetSpiral, 0.55f) * (0.7f + 1.0f * JetKnotGrowth * zc / len) * (0.75f + 0.5f * hb);
+                float wx = (hx - 0.5f) * 0.7f * Rb, wy = (hy - 0.5f) * 0.7f * Rb;
+                var local = new Vector3(Vector3.Dot(perp, t) - wx, Vector3.Dot(perp, bb) - wy, az - zc) / Rb;
+                var seedOffset = new Vector3(kq * 3.7f, side * 9.1f, Time * 0.05f);
+                float turb = Fbm(local * 1.6f + seedOffset) - 0.5f;
+                float wisps = 1f - MathF.Abs(2f * Noise3(local * 4f + seedOffset * 1.3f) - 1f);   // filaments
+                // Squashed at the front, drawn out into a wispy trail behind.
+                float sd = new Vector3(local.X, local.Y, local.Z * (local.Z > 0f ? 1.7f : 0.75f)).Length() + 0.9f * turb;
+                float shellD = (sd - 0.65f) / 0.15f, coreD = sd / 0.4f;
+                float front = 0.3f + 0.7f * SmoothStep(-0.5f, 0.7f, local.Z);   // the bow-shaped leading cap
+                blob += (MathF.Exp(-shellD * shellD) * front * (0.5f + wisps * wisps) + 0.25f * MathF.Exp(-coreD * coreD)) * (0.6f + 0.8f * hb);
+            }
+            float fade = MathF.Pow(2f / MathF.Max(az, 2f), 0.6f) * (1f - SmoothStep(len * 0.95f, len * 1.25f, az));
+            blob *= 3f * fade;
+            density += (blob - density) * knotWeight;
+            gas += (blob * 0.5f - gas) * knotWeight;   // glowing plasma: they hide little behind them
+        }
 
         // Relativistic beaming: the gas moves away from the hole along the axis at JetSpeed.
         float cosT = Vector3.Dot(N * MathF.Sign(z), -Vector3.Normalize(v));

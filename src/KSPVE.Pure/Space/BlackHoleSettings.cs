@@ -51,6 +51,10 @@ public static class BlackHoleSettings
     public static readonly DoubleSetting JetSpiral = Schema.Add(new DoubleSetting("jetSpiral", 1.0, 0.0, 1.0, "Make each jet a solid spiral core, its surface swirled with streaks of brighter gas; 0 is a plain column."));
     public static readonly DoubleSetting JetTurns = Schema.Add(new DoubleSetting("jetTurns", 4.0, 0.0, 1e6, "Turns the swirl makes along each jet's length."));
     public static readonly DoubleSetting JetFlow = Schema.Add(new DoubleSetting("jetFlow", 30.0, 0.0, 1e9, "How fast the jet's pattern streams outward, in horizon radii per second at mid-length (it speeds up further out)."));
+    public static readonly DoubleSetting JetKnots = Schema.Add(new DoubleSetting("jetKnots", 0.0, 0.0, 1.0, "Past jetKnotStart the jets come apart into a chain of blobs (plasmoids) streaming outward, each a turbulent puff with a bright bow-shaped front: 0 = a continuous jet, 1 = all blobs."));
+    public static readonly DoubleSetting JetKnotStart = Schema.Add(new DoubleSetting("jetKnotStart", 0.3, 0.0, 1.0, "Where along the jets they break into blobs, as a fraction of their length."));
+    public static readonly DoubleSetting JetKnotSpacing = Schema.Add(new DoubleSetting("jetKnotSpacing", 0.1, 0.001, 10.0, "Spacing of the blobs (fraction of the jet; they are further apart further out)."));
+    public static readonly DoubleSetting JetKnotGrowth = Schema.Add(new DoubleSetting("jetKnotGrowth", 1.0, 0.0, 100.0, "How much the blobs swell as they travel out."));
     public static readonly DoubleSetting JetAbsorb = Schema.Add(new DoubleSetting("jetAbsorb", 0.6, 0.0, 1e6, "How much the jet gas absorbs light behind it, so near filaments hide far ones; 0 is a pure glow."));
     public static readonly BoolSetting DiskDrag = Schema.Add(new BoolSetting("diskDrag", true, "Gas in the disk drags vessels toward co-rotating with it."));
     public static readonly DoubleSetting DiskDragTimescale = Schema.Add(new DoubleSetting("diskDragTimescale", 0.5, 0.0001, 1e12, "Seconds for a vessel to match the gas speed at full disk density."));

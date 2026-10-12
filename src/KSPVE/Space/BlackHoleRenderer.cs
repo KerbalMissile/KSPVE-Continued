@@ -39,6 +39,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     private static readonly int ExtraId = Shader.PropertyToID("_KSPVE_BHExtra");
     private static readonly int JetId = Shader.PropertyToID("_KSPVE_BHJet");
     private static readonly int Jet2Id = Shader.PropertyToID("_KSPVE_BHJet2");
+    private static readonly int JetKnotsId = Shader.PropertyToID("_KSPVE_BHJetKnots");
     private static readonly int RayId = Shader.PropertyToID("_KSPVE_BHRay");
     private static readonly int OptionsId = Shader.PropertyToID("_KSPVE_BHOptions");
     private static readonly int RectId = Shader.PropertyToID("_KSPVE_BHRect");
@@ -87,6 +88,8 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     private static readonly int ObjFieldId = Shader.PropertyToID("_KSPVE_ObjField");
     private static readonly int ObjNeutron2Id = Shader.PropertyToID("_KSPVE_ObjNeutron2");
     private static readonly int ObjGalaxyId = Shader.PropertyToID("_KSPVE_ObjGalaxy");
+    // Steps more for an object round a black hole: its rays are bent, in short steps near the horizon.
+    private const int HostedExtraSteps = 150;
     // A comet's motion is taken over this long (s of game time), relative to its star.
     private const double CometVelocityStep = 3600.0;
 
@@ -185,11 +188,17 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 if (horizon <= 0f) continue;
                 // The star at the centre, in shader units: a neutron star's own radius, the body for the rest.
                 double starUnits = hole.Kind == SpaceObjectKind.NeutronStar ? hole.StarRadius : body.Radius / shaderMeters;
+                // Round a black hole (another object on the same body): its rays are bent by it and end at its horizon, so
+                // the gas behind it is lensed round the shadow rather than showing through it.
+                BlackHoleDefinition host = isHole ? null : HoleOn(body);
+                double holeUnits = host != null ? host.HorizonMeters(body) / shaderMeters : 0.0;
+                if (holeUnits > 0.0) starUnits = holeUnits;
 
                 Vector3 center = body.scaledBody.transform.position - view.position;
                 DiskState disk = BlackHoles.StateOf(hole);
                 double kindBound = isHole
-                    ? Math.Max(hole.DiskOuter * 1.25 + 8.0, hole.Jets > 0 ? BlackHoleSettings.JetBound(hole.JetLength, hole.JetWidth, hole.JetSpiral) : 0.0)
+                    ? Math.Max(hole.DiskOuter * 1.25 + 8.0, hole.Jets > 0
+                        ? BlackHoleSettings.JetBound(hole.JetLength * (hole.JetKnots > 0 ? 1.25 : 1.0), hole.JetWidth * (hole.JetKnots > 0 ? 2.5 + hole.JetKnotGrowth : 1.0), hole.JetSpiral) : 0.0)
                     : SpaceObjects.Bound(hole.Kind, hole.DiskOuter, hole.DiskThickness, hole.Flaring, hole.EdgeSoftness, starUnits,
                         hole.FieldLines, hole.FieldShells, hole.FieldShellRatio, hole.Beams, hole.JetLength, hole.ComaSize,
                         hole.IonTailLength, hole.DustTailLength, hole.DustTailCurve);
@@ -198,7 +207,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 float bound = tde != null ? Mathf.Max(core, (float)tde.Extent) : core;
                 if (!ScreenRect(center, bound * horizon, view, tanX, tanY, margin, out Vector4 rect)) continue;
                 // A star at the centre of a dusty disk hides the disk behind it.
-                bool depth = Occluders(body, center, bound * horizon, view.position, inverseScale, horizon, SpaceObjects.BodyHidesObject(hole.Kind)) > 0;
+                bool depth = Occluders(body, center, bound * horizon, view.position, inverseScale, horizon, SpaceObjects.BodyHidesObject(hole.Kind) && host == null) > 0;
                 needDepth |= depth;
                 union = new Vector4(Mathf.Min(union.x, rect.x), Mathf.Min(union.y, rect.y), Mathf.Max(union.z, rect.z), Mathf.Max(union.w, rect.w));
 
@@ -236,10 +245,12 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 block.SetVector(LookId, new Vector4((float)hole.PeakTemperature, (float)(hole.Brightness * engine.Post.BlackHoleBrightness), rotation, (float)(time % 10000.0)));
                 // The swirl keeps the configured pitch and flow as a young jet grows out to its full length.
                 block.SetVector(JetId, new Vector4((float)disk.Jets, (float)disk.JetLength, (float)hole.JetWidth, (float)hole.JetSpeed));
+                block.SetVector(JetKnotsId, new Vector4((float)hole.JetKnots, (float)hole.JetKnotStart, (float)hole.JetKnotSpacing, (float)hole.JetKnotGrowth));
                 block.SetVector(Jet2Id, new Vector4((float)hole.JetSpiral, (float)BlackHoleSettings.JetTwistRate(hole.JetTurns, hole.JetLength),
                     (float)BlackHoleSettings.JetFlowRate(hole.JetFlow, hole.JetLength), (float)hole.JetAbsorb));
                 block.SetVector(ExtraId, new Vector4((float)hole.ColorSaturation, (float)(hole.Glow * disk.Presence * (1.0 + 3.0 * disk.LaunchFlash)), (float)hole.PhotonRing, (float)(hole.Particles * disk.Presence)));
-                block.SetVector(RayId, new Vector4(tanX, tanY, hole.Steps + (isHole ? BlackHoleSettings.ExtraSteps(disk.Outer) : 0) + (tde != null ? TdeExtraSteps : 0), bound));
+                block.SetVector(RayId, new Vector4(tanX, tanY, hole.Steps + (isHole ? BlackHoleSettings.ExtraSteps(disk.Outer) : 0) + (tde != null ? TdeExtraSteps : 0)
+                    + (holeUnits > 0.0 ? HostedExtraSteps : 0), bound));
                 SetTde(block, tde, hole, core);
                 block.SetVector(TintId, new Vector4((float)hole.DiskTint, (float)hole.InnerBrightness, (float)hole.OuterBrightness, 0f));
                 block.SetVector(TintInnerId, Rgb(hole.InnerColor));
@@ -249,7 +260,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 block.SetVector(AdvancedId, new Vector4((float)hole.DiskDensity, (float)hole.DiskOpacity, (float)hole.Emission, (float)hole.CloudSize));
                 block.SetVector(Advanced2Id, new Vector4((float)hole.SelfShadow, (float)hole.InnerLight, (float)hole.StreakWinding, (float)hole.StreakStretch));
                 block.SetVector(Advanced3Id, new Vector4((float)hole.StreakLanes, (float)hole.ParticleSpacing, 0f, 0f));
-                if (!isHole) SetObject(block, hole, body, starUnits, shaderMeters);
+                if (!isHole) SetObject(block, hole, body, starUnits, shaderMeters, holeUnits);
                 block.SetVector(OptionsId, new Vector4(depth ? 1f : 0f, 2f * tanY / height, (float)(hole.Debris * disk.Presence), hole.Pulsar ? 1f : 0f));
                 block.SetVector(RightId, view.right);
                 block.SetVector(UpId, view.up);
@@ -265,8 +276,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 _buffer.GetTemporaryRT(BufferId, width, height, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
                 _buffer.SetRenderTarget(BufferId);
                 _buffer.ClearRenderTarget(false, true, Color.clear);
-                for (int i = 0; i < drawn; i++)
-                    _buffer.DrawProcedural(Matrix4x4.identity, _material, _passes[i], MeshTopology.Triangles, QuadVertices, 1, _blocks[i]);
+                DrawAll(drawn);
                 _buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
                 _compositeBlock.SetVector(RectId, union);
                 _buffer.DrawProcedural(Matrix4x4.identity, _material, CompositePass, MeshTopology.Triangles, QuadVertices, 1, _compositeBlock);
@@ -274,8 +284,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
             }
             else
             {
-                for (int i = 0; i < drawn; i++)
-                    _buffer.DrawProcedural(Matrix4x4.identity, _material, _passes[i], MeshTopology.Triangles, QuadVertices, 1, _blocks[i]);
+                DrawAll(drawn);
             }
 
             if (!_attached)
@@ -294,7 +303,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     }
 
     /// <summary>The uniforms of another kind of object (fragObject); sizes in shader units (<paramref name="shaderMeters"/> each).</summary>
-    private void SetObject(MaterialPropertyBlock block, BlackHoleDefinition h, CelestialBody body, double starUnits, double shaderMeters)
+    private void SetObject(MaterialPropertyBlock block, BlackHoleDefinition h, CelestialBody body, double starUnits, double shaderMeters, double holeUnits)
     {
         int gaps = DiskGaps.Fill(h.DiskInner, h.DiskOuter, h.Rings, h.RingDepth, h.RingWidth, h.Gaps, h.GapWidths, h.GapDepths, _gaps);
         for (int i = 0; i < DiskGaps.Max; i++)
@@ -324,7 +333,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
         block.SetVector(ObjColorBId, Rgb(h.ColorB));
         block.SetVector(ObjDustColorId, Rgb(h.DustColor));
         block.SetVector(ObjComaColorId, Rgb(h.ComaColor));
-        block.SetVector(ObjExtraId, new Vector4((float)h.Shell, (float)h.Striae, 0f, 0f));
+        block.SetVector(ObjExtraId, new Vector4((float)h.Shell, (float)h.Striae, (float)holeUnits, 0f));
         if (h.Kind != SpaceObjectKind.Comet) return;
 
         // The comet's tails: away from its star, curving back along its motion round it.
@@ -347,6 +356,23 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     }
 
     private static Vector4 Rgb(Double3 c) => new Vector4((float)c.X, (float)c.Y, (float)c.Z, 1f);
+
+    /// <summary>The black hole drawn on a body, if any (the other objects round it are lensed by it).</summary>
+    private static BlackHoleDefinition HoleOn(CelestialBody body)
+    {
+        foreach (BlackHoleDefinition d in BlackHoles.Definitions)
+            if (d.Enabled && d.IsBlackHole && !d.Pulsar && d.Body == body) return d;
+        return null;
+    }
+
+    /// <summary>The black holes first, then the other objects over them (gas in front of a hole veils its shadow).</summary>
+    private void DrawAll(int drawn)
+    {
+        for (int pass = 0; pass < 2; pass++)
+            for (int i = 0; i < drawn; i++)
+                if ((_passes[i] == MarchPass) == (pass == 0))
+                    _buffer.DrawProcedural(Matrix4x4.identity, _material, _passes[i], MeshTopology.Triangles, QuadVertices, 1, _blocks[i]);
+    }
 
     /// <summary>
     /// The event's uniforms. The model works in the hole's inertial disk frame (built from the configured normal, which

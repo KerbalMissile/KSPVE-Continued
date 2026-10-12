@@ -22,6 +22,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             float4 _KSPVE_BHLook;         // peak temperature K, brightness, disk rotation angle (rad, signed), time (s)
             float4 _KSPVE_BHJet;          // jets: strength (0 = off), length (horizon radii), width, gas speed (fraction of c)
             float4 _KSPVE_BHJet2;         // jets: spiral (0..1), swirl twist (rad per unit z^0.45), flow (z^0.45 per s), absorption
+            float4 _KSPVE_BHJetKnots;     // jets breaking into blobs: x amount 0..1, y where (fraction of the length), z spacing (fraction of z^0.45 along it), w growth
             float4 _KSPVE_BHExtra;        // colour saturation, glow, photon ring, particles 0..1
             float4 _KSPVE_BHRay;          // tan(fovX/2), tan(fovY/2), max steps, bounding radius (horizon radii)
             float4 _KSPVE_BHOptions;      // test scene depth (0/1), radians per target pixel, debris 0..1, pulsar (0/1)
@@ -64,7 +65,8 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             float4 _KSPVE_ObjComaColor;   // rgb: comet coma
             float4 _KSPVE_ObjSun;         // xyz: comet: towards its star
             float4 _KSPVE_ObjVel;         // xyz: comet: its direction of motion
-            float4 _KSPVE_ObjExtra;       // x: nebula: how much of its gas lies in a hollow shell (a planetary nebula) 0..1; y: comet: dust tail striae
+            float4 _KSPVE_ObjExtra;       // x: nebula: how much of its gas lies in a hollow shell (a planetary nebula) 0..1; y: comet: dust tail striae;
+                                          // z: a black hole on the same body: its horizon in these units (rays bend round it and end there), 0 = none
             float4 _KSPVE_ObjDisk2;       // dusty disks: x density falloff exponent, y edge softness, z clumpiness, w clump size
             float4 _KSPVE_ObjDisk3;       // dusty disks: x scattering asymmetry g, y rim glow, z rim temperature (K), w rocks' vertical spread
             float4 _KSPVE_ObjSpiral;      // dusty disks: x spiral arms, y their contrast 0..1, z winding; w: rocks' size spread
@@ -418,11 +420,12 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     color += transmittance * float3(0.75, 0.88, 1.0) * (_KSPVE_BHForm.w * strength * 0.25 * head * dt / hr);
                 }
                 float start = 1.1 * (1.0 - spiralAmount);                                               // the spiral tube starts at the hole
-                if (az < start || az > len) return;
+                float knotAmount = _KSPVE_BHJetKnots.x;
+                if (az < start || az > len * (knotAmount > 0.0 ? 1.25 : 1.0)) return;
                 float3 perp = x - z * n;
                 float rho = length(perp);
                 float R = width * pow(az + JetBase * spiralAmount, 0.55);
-                if (rho > 3.0 * R) return;
+                if (rho > (knotAmount > 0.0 ? 7.0 : 3.0) * R) return;
                 float s = rho / R;
                 float tail = (1.0 - smoothstep(len * 0.6, len, az)) * pow(2.0 / max(az, 2.0), 0.6);
                 float along = smoothstep(1.1, 2.5, az) * tail;
@@ -452,6 +455,41 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float spiralGas = 4.0 * column * (1.0 - glowFade * 0.4) * (0.5 + nz);
                 float density = along * plain + (tail * spiralGlow - along * plain) * spiralAmount;
                 float gas = along * plain + (tail * spiralGas - along * plain) * spiralAmount;
+                if (knotAmount > 0.0)
+                {
+                    // Past the break the beam comes apart into a chain of blobs (plasmoids) streaming out with the flow, each a
+                    // turbulent puff with a brighter bow-shaped front, swelling and fading as it goes. They are spaced in
+                    // z^0.45, so further out they are further apart, as the flow speeds up.
+                    float breakAt = _KSPVE_BHJetKnots.y * len;
+                    float knotWeight = knotAmount * smoothstep(breakAt * 0.85, breakAt * 1.15 + 1.0, az);
+                    float side = z < 0.0 ? 0.37 : 0.0;
+                    float spacing = max(_KSPVE_BHJetKnots.z, 1e-3) * pow(len, 0.45);
+                    float moved = flowRate * _KSPVE_BHLook.w;
+                    float k0 = floor((pow(az, 0.45) - moved) / spacing - side);
+                    float blob = 0.0;
+                    [unroll] for (int j = 0; j < 2; j++)   // the blobs either side, so big ones overlap rather than cut off
+                    {
+                        float kq = k0 + j;
+                        float zc = pow(max((kq + side) * spacing + moved, 1e-3), 1.0 / 0.45);
+                        float seed = kq * 12.9898 + side * 78.233;
+                        float hb = frac(sin(seed) * 43758.5453), hx = frac(sin(seed + 1.7) * 43758.5453), hy = frac(sin(seed + 3.1) * 43758.5453);
+                        float Rb = width * pow(zc + JetBase * spiralAmount, 0.55) * (0.7 + 1.0 * _KSPVE_BHJetKnots.w * zc / len) * (0.75 + 0.5 * hb);
+                        float2 wobble = (float2(hx, hy) - 0.5) * (0.7 * Rb);
+                        float3 local = float3(dot(perp, t) - wobble.x, dot(perp, b) - wobble.y, az - zc) / Rb;
+                        float3 seedOffset = float3(kq * 3.7, side * 9.1, _KSPVE_BHLook.w * 0.05);
+                        float turb = Fbm(local * 1.6 + seedOffset) - 0.5;
+                        float wisps = 1.0 - abs(2.0 * Noise3(local * 4.0 + seedOffset * 1.3) - 1.0);   // filaments
+                        // Squashed at the front, drawn out into a wispy trail behind.
+                        float sd = length(float3(local.xy, local.z * (local.z > 0.0 ? 1.7 : 0.75))) + 0.9 * turb;
+                        float shellD = (sd - 0.65) / 0.15, coreD = sd / 0.4;
+                        float front = 0.3 + 0.7 * smoothstep(-0.5, 0.7, local.z);   // the bow-shaped leading cap
+                        blob += (exp(-shellD * shellD) * front * (0.5 + wisps * wisps) + 0.25 * exp(-coreD * coreD)) * (0.6 + 0.8 * hb);
+                    }
+                    float fade = pow(2.0 / max(az, 2.0), 0.6) * (1.0 - smoothstep(len * 0.95, len * 1.25, az));
+                    blob *= 3.0 * fade;
+                    density = lerp(density, blob, knotWeight);
+                    gas = lerp(gas, blob * 0.5, knotWeight);   // glowing plasma: they hide little behind them
+                }
 
                 // Relativistic beaming: the gas moves away from the hole along the axis.
                 float cosT = dot(n * sign(z), -normalize(v));
@@ -867,10 +905,11 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     // Fine steps inside the disk layer: about three per clump out where the clumps are big.
                     if (nearPlane < 5.0 * _KSPVE_BHDisk.z * r && r < _KSPVE_BHDisk.y * 1.2) dt = min(dt, 0.2 * grain * min(grain, 3.0));
                     float alongJet = abs(dot(x, _KSPVE_BHJetAxis.xyz));
-                    if (_KSPVE_BHJet.x > 0.0 && alongJet > 1.1 * (1.0 - _KSPVE_BHJet2.x) && alongJet < _KSPVE_BHJet.y)                    // and inside the jets
+                    if (_KSPVE_BHJet.x > 0.0 && alongJet > 1.1 * (1.0 - _KSPVE_BHJet2.x) && alongJet < _KSPVE_BHJet.y * (_KSPVE_BHJetKnots.x > 0.0 ? 1.25 : 1.0))   // and inside the jets
                     {
                         float jetR = _KSPVE_BHJet.z * pow(alongJet + JetBase * _KSPVE_BHJet2.x, 0.55);
-                        if (length(x - dot(x, _KSPVE_BHJetAxis.xyz) * _KSPVE_BHJetAxis.xyz) < 3.0 * jetR) dt = min(dt, (0.35 - 0.15 * _KSPVE_BHJet2.x) * jetR);
+                        if (length(x - dot(x, _KSPVE_BHJetAxis.xyz) * _KSPVE_BHJetAxis.xyz) < (_KSPVE_BHJetKnots.x > 0.0 ? 7.0 : 3.0) * jetR)
+                            dt = min(dt, (0.35 - 0.15 * _KSPVE_BHJet2.x) * jetR);
                     }
                     float tdeK = 0.0, envK = 0.0;
                     float3 tdeEmit = 0.0, tdeGlow = 0.0, envEmit = 0.0;
@@ -1333,7 +1372,10 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float h2 = dot(hv, hv);
                 int kind = ObjKind();
                 bool neutron = kind == KIND_NEUTRON;
-                float bend = neutron ? 1.0 : 0.0;   // only a neutron star is compact enough to bend light visibly
+                // Bent by a neutron star's own gravity, or by a black hole on the same body (x'' = -1.5 h^2 x r_s / r^5 with
+                // r_s its horizon in these units); otherwise straight. Round a hole the rays end at its horizon (starR).
+                float hole = _KSPVE_ObjExtra.z;
+                float bend = neutron ? 1.0 : hole;
                 float starR = _KSPVE_ObjKind.y;
                 float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y, thick = _KSPVE_BHDisk.z;
                 float3 color = 0;
@@ -1383,6 +1425,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                         dt = min(dt, max(0.02 * r, _KSPVE_ObjDust.w * 0.7));   // dusty disks: fine steps through the layer
                     if (!neutron && _KSPVE_ObjNeutron.x > 0.0 && r < starR * FieldShellStart * pow(FieldShellRatio, FieldShells - 1.0) * 1.1)
                         dt = min(dt, max(0.05 * r, 0.05 * starR));   // and through the field lines
+                    if (hole > 0.0 && !neutron) dt = min(dt, max(0.08 * r, 0.02 * hole));   // short steps where the hole bends the rays
                     if (k == 0) dt *= jitter;
                     dt = min(dt, max(sceneDistance - traveled, 1e-5));
 

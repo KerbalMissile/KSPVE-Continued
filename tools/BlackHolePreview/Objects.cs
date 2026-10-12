@@ -33,7 +33,7 @@ internal static partial class Program
         ObjRimT, ObjRockSpread, ObjSpiralArms, ObjSpiralStrength, ObjSpiralWinding, ObjRockSizeSpread, ObjCloudStretch,
         ObjCloudRagged, ObjCloudFill, ObjComaB, ObjIonB, ObjDustB, ObjNucleusB, ObjIonWidth, ObjStreamers, ObjStriae,
         ObjFieldCount, ObjFieldShells, ObjFieldRatio, ObjFieldWidth, ObjColumnWidth, ObjBeamWidth, ObjHotspots, ObjRockCap,
-        ObjBulge, ObjBulgeB, ObjBar, ObjClusters;
+        ObjBulge, ObjBulgeB, ObjBar, ObjClusters, ObjHoleUnits;
     static Vector3 ObjInnerColor, ObjOuterColor;
     static Vector3 ObjColorA, ObjColorB, ObjDustColor, ObjOuterDust, ObjRockColor, ObjComaColor, ObjMag, ObjSunDir, ObjVelDir, ObjT, ObjB;
     static readonly Vector4[] ObjGaps = new Vector4[DiskGaps.Max];
@@ -418,7 +418,10 @@ internal static partial class Program
         Vector3 hv = Vector3.Cross(x, v);
         float h2 = Vector3.Dot(hv, hv);
         bool neutron = ObjKind == KindNeutronStar;
-        float bend = neutron ? 1f : 0f;   // only a neutron star is compact enough to bend light visibly
+        // Bent by a neutron star's own gravity, or by a black hole on the same body (OBJ_HOLE: its horizon in these units);
+        // round a hole the rays end at its horizon.
+        float hole = ObjHoleUnits;
+        float bend = neutron ? 1f : hole;
         float inner = ObjInner, outer = ObjOuter, thick = ObjThick;
         Vector3 color = Vector3.Zero;
         float transmittance = 1f;
@@ -437,7 +440,7 @@ internal static partial class Program
                     float limb = 0.55f + 0.45f * MathF.Abs(Vector3.Dot(n, vn0));
                     color += transmittance * (Saturate(Blackbody(ObjSurfaceT), 1.3f) * limb + Blackbody(ObjSurfaceT * 3f) * (pole * ObjHotspots));
                 }
-                else if (ObjKind != KindGalaxy)
+                else if (ObjKind != KindGalaxy && hole <= 0f)
                 {
                     // Preview only: the star the game draws (the shader stops here and lets it show); OBJ_STARSTYLE as for "star".
                     string style = Environment.GetEnvironmentVariable("OBJ_STARSTYLE");
@@ -470,6 +473,7 @@ internal static partial class Program
                 dt = MathF.Min(dt, MathF.Max(0.02f * r, ObjRockCell * 0.7f));   // dusty disks: fine steps through the layer
             if (!neutron && ObjFieldLines > 0f && r < ObjStarR * FieldShellStart * MathF.Pow(ObjFieldRatio, ObjFieldShells - 1f) * 1.1f)
                 dt = MathF.Min(dt, MathF.Max(0.05f * r, 0.05f * ObjStarR));   // and through the field lines
+            if (hole > 0f && !neutron) dt = MathF.Min(dt, MathF.Max(0.08f * r, 0.02f * hole));   // short steps where the hole bends the rays
             if (k == 0) dt *= Jitter;
 
             if (neutron)
@@ -674,6 +678,8 @@ internal static partial class Program
             if (kind == SpaceObjectKind.Comet || kind == SpaceObjectKind.Nebula || kind == SpaceObjectKind.Galaxy) bodyRadius = EnvFloat("OBJ_BODYRADIUS", 0f);
         }
         ApplyObject(settings, bodyRadius);
+        ObjHoleUnits = EnvFloat("OBJ_HOLE", 0f);
+        if (ObjHoleUnits > 0f) { ObjStarR = ObjHoleUnits; MaxSteps += 150; }
 
         string path = args[at];
         int w = int.Parse(args[at + 1]), h = int.Parse(args[at + 2]);
