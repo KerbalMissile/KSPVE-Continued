@@ -17,5 +17,10 @@
     <Compile Include="..\..\src\KSPVE.Pure\Space\Procedural\Pcg32.cs" Link="Pure\Pcg32.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\Relativity\SchwarzschildOrbit.cs" Link="Pure\SchwarzschildOrbit.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\Tde\*.cs" LinkBase="Pure\Tde" />
+    <!-- The other kinds of object: their settings, kinds' defaults and disk gaps, so previews read the configs. -->
+    <Compile Include="..\..\src\KSPVE.Pure\Space\BlackHoleSettings.cs" Link="Pure\BlackHoleSettings.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\SpaceObjects.cs" Link="Pure\SpaceObjects.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\DiskGaps.cs" Link="Pure\DiskGaps.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\ProceduralObjects.cs" Link="Pure\ProceduralObjects.cs" />
   </ItemGroup>
 </Project>

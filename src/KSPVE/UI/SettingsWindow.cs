@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using KSPVE.Core;
+using KSPVE.Pure.Config;
+using KSPVE.Pure.Numerics;
 using KSPVE.Pure.Post;
 using KSPVE.Pure.Space;
 using KSPVE.Pure.Space.Tde;
@@ -27,7 +29,10 @@ internal sealed class SettingsWindow : MonoBehaviour
     private Rect _rect = new Rect(120, 120, 520, 760);
     private Vector2 _scroll;
     private string _status = string.Empty;
-    private int _openHole = -1; // black hole whose look & physics panel is open
+    private int _openHole = -1; // black hole (or other object) whose panel is open
+    private int _addBody;        // the body and kind the "add an object" row offers
+    private int _addKind = (int)SpaceObjectKind.AsteroidBelt;
+    private static bool _advanced;  // the open object's finer settings shown too
 
     public bool HiddenForScreenshot
     {
@@ -156,12 +161,15 @@ internal sealed class SettingsWindow : MonoBehaviour
         }
 
         Header("Space");
-        p.BlackHoles = Toggle($"Black holes & accretion disks ({KSPVE.Space.BlackHoles.Definitions.Count} configured)", p.BlackHoles);
+        p.BlackHoles = Toggle($"Black holes, neutron stars, disks, belts, nebulae & comets ({KSPVE.Space.BlackHoles.Definitions.Count} configured)", p.BlackHoles);
         if (p.BlackHoles)
         {
-            p.BlackHoleBrightness = Slider("  Disk brightness (all holes)", p.BlackHoleBrightness, 0, 5);
-            p.BlackHoleResolution = Slider("  Render scale (lower = faster)", p.BlackHoleResolution, 0.25, 1);
+            p.BlackHoleBrightness = Slider("  Brightness (all of them)", p.BlackHoleBrightness, 0, 20);
+            p.BlackHoleResolution = Math.Min(Math.Max(Slider("  Render scale (lower = faster, above 1 supersampled)", p.BlackHoleResolution, 0.05, 4), 0.05), 4.0);
+            p.BlackHoleBrightness = Math.Max(p.BlackHoleBrightness, 0.0);
             for (int i = 0; i < BlackHoles.Definitions.Count; i++) DrawBlackHole(i);
+            DrawAddObject();
+            DrawProcedural();
             DrawTidalDisruption();
         }
         p.OrbitPaths = Toggle("Orbit paths in the map (every body's next lap)", p.OrbitPaths);
@@ -197,12 +205,15 @@ internal sealed class SettingsWindow : MonoBehaviour
         GUI.DragWindow();
     }
 
-    /// <summary>Live look & physics controls for one black hole; Save keeps them in user.cfg.</summary>
+    /// <summary>
+    /// Live controls for one object, every setting its kind has (Save keeps them in user.cfg): what it is, its look, its
+    /// size and orientation, and, for a black hole, its pull on ships.
+    /// </summary>
     private void DrawBlackHole(int index)
     {
         BlackHoleDefinition h = BlackHoles.Definitions[index];
         bool open = _openHole == index;
-        string title = $"  {h.BodyName}: colour, disk & drag{(h.Edited ? " (edited)" : string.Empty)}";
+        string title = $"  {h.Title}{(h.Procedural ? " (procedural)" : string.Empty)}{(h.Enabled ? string.Empty : " (off)")}{(h.Edited ? " (edited)" : string.Empty)}";
         if (Toggle(title, open) != open)
         {
             _openHole = open ? -1 : index;
@@ -211,6 +222,55 @@ internal sealed class SettingsWindow : MonoBehaviour
         if (!open) return;
 
         GUI.changed = false;
+        h.Enabled = Toggle("    Drawn", h.Enabled);
+        GUILayout.Label("    What it is (switching starts from that kind's settings):");
+        int kind = GUILayout.SelectionGrid((int)h.Kind, SpaceObjects.KindNames, 4);
+        if (kind != (int)h.Kind)
+        {
+            BlackHoles.ChangeKind(index, (SpaceObjectKind)kind);
+            _status = $"{h.BodyName} is now a {SpaceObjects.KindName((SpaceObjectKind)kind)} (Save to keep)";
+            return;
+        }
+
+        switch (h.Kind)
+        {
+            case SpaceObjectKind.BlackHole: DrawHole(h); break;
+            case SpaceObjectKind.NeutronStar: DrawNeutronStar(h); break;
+            case SpaceObjectKind.Nebula: DrawNebula(h); break;
+            case SpaceObjectKind.Comet: DrawComet(h); break;
+            case SpaceObjectKind.Galaxy: DrawGalaxy(h); break;
+            default: DrawDustyDisk(h); break;
+        }
+        DrawPlacement(h);
+        if (GUI.changed)
+        {
+            h.Edited = true;
+            h.KeepPhysical();
+        }
+
+        GUILayout.BeginHorizontal();
+        if (h.ConfigNode != null && GUILayout.Button($"Reset {h.Title} to its config"))
+        {
+            BlackHoles.ResetToConfig(index);
+            _status = $"{h.Title} reset to its config (Save to keep)";
+        }
+        if (h.Procedural && GUILayout.Button($"Keep {h.Title} (save it, edit it)"))
+        {
+            BlackHoles.Keep(index);
+            _status = $"{h.Title} kept (Save to keep it for good)";
+        }
+        if (h.AddedInGame && GUILayout.Button($"Remove {h.Title}"))
+        {
+            BlackHoles.Remove(index);
+            _openHole = -1;
+            _status = $"{h.Title} removed (Save to keep)";
+        }
+        GUILayout.EndHorizontal();
+    }
+
+    /// <summary>A black hole: its disk's colour, size and streaks, its jets, its light and drag on ships.</summary>
+    private static void DrawHole(BlackHoleDefinition h)
+    {
         GUILayout.BeginHorizontal();
         GUILayout.Label("    Colour:", GUILayout.Width(80));
         foreach (ColorPreset preset in BlackHoleSettings.ColorPresets)
@@ -219,39 +279,46 @@ internal sealed class SettingsWindow : MonoBehaviour
             h.PeakTemperature = preset.PeakTemperature;
             h.ColorSaturation = preset.ColorSaturation;
             h.Brightness = preset.Brightness;
-            h.Edited = true;
+            GUI.changed = true;
         }
         GUILayout.EndHorizontal();
-        h.PeakTemperature = Slider("    Temperature (K): red > gold > blue", h.PeakTemperature, 1500, 60000, "0");
+        h.PeakTemperature = Slider("    Temperature (K): red > gold > blue", h.PeakTemperature, 1000, 200000, "0");
         h.ColorSaturation = Slider("    Colour strength", h.ColorSaturation, 0, 4);
-        h.Brightness = Slider("    Brightness", h.Brightness, 0, 10);
+        h.Brightness = Slider("    Brightness", h.Brightness, 0, 50);
         h.Glow = Slider("    Glow around the hole", h.Glow, 0, 5);
         h.PhotonRing = Slider("    Photon ring", h.PhotonRing, 0, 5);
+        h.PhotonRingColor = ColorSliders("    Photon ring colour", h.PhotonRingColor);
+        DrawDiskParts(h);
 
         h.RotationSpeed = Slider("    Spin speed (1 = a turn per ~8 s)", h.RotationSpeed, 0, 5);
         h.Spin = Toggle("    Reverse spin", h.Spin < 0) ? -1.0 : 1.0;
         h.BeamPeriod = Slider("    Jet sweep: seconds per turn, like a pulsar (0 = along the axis)", h.BeamPeriod, 0, 5);
         if (h.BeamPeriod > 0) h.BeamTilt = Slider("    Jet sweep: tilt from the spin axis (deg)", h.BeamTilt, 0, 90, "0");
-        h.DiskOuter = Slider("    Disk size (outer edge, horizon radii)", h.DiskOuter, h.DiskInner + 1, 40);
-        h.DiskThickness = Slider("    Thickness", h.DiskThickness, 0.02, 0.4);
+        h.HorizonRadiusMeters = Slider("    Horizon radius (m; 0 = from the body)", h.HorizonRadiusMeters, 0, 1e11, "0");
+        h.BodyIsShadow = Toggle("    Draw it the body's size (the body is the shadow, not the horizon)", h.BodyIsShadow);
+        h.DiskInner = Slider("    Disk inner edge (horizon radii; 3 = innermost stable orbit)", h.DiskInner, 1, 50);
+        h.DiskOuter = Slider("    Disk size (outer edge, horizon radii)", h.DiskOuter, h.DiskInner + 1, 500);
+        h.DiskThickness = Slider("    Thickness", h.DiskThickness, 0.01, 2);
         h.Turbulence = Slider("    Puffiness / turbulence", h.Turbulence, 0, 1);
         h.DiskStreaks = Slider("    Swirling streaks seen from above", h.DiskStreaks, 0, 1);
+        h.OuterGlow = Slider("    Outer disk glow (big disks)", h.OuterGlow, 0, 3);
         h.Particles = Slider("    Sparks", h.Particles, 0, 2);
         h.Debris = Slider("    Debris", h.Debris, 0, 1);
         h.Jets = Slider("    Jets (0 = off)", h.Jets, 0, 5);
         if (h.Jets > 0)
         {
-            h.JetLength = Slider("      Jet length (horizon radii)", h.JetLength, 5, 200, "0");
+            h.JetLength = Slider("      Jet length (horizon radii)", h.JetLength, 5, 2000, "0");
             h.JetWidth = Slider("      Jet width", h.JetWidth, 0.1, 3);
             h.JetSpeed = Slider("      Jet speed (fraction of c)", h.JetSpeed, 0, 0.99);
             h.JetSpiral = Slider("      Spiral (0 = plain column)", h.JetSpiral, 0, 1);
             if (h.JetSpiral > 0) h.JetTurns = Slider("      Swirl turns", h.JetTurns, 0, 20, "0.0");
             h.JetFlow = Slider("      Flow (horizon radii/s)", h.JetFlow, 0, 200, "0");
             h.JetAbsorb = Slider("      Volume (absorption)", h.JetAbsorb, 0, 3);
+            h.JetColor = ColorSliders("      Jet colour", h.JetColor);
         }
+        h.Pulsar = Toggle("    Pulsar: no shadow, lensing or disk, only the jets as beams", h.Pulsar);
+        h.DiskFromTde = Toggle("    No disk until a tidal disruption builds one", h.DiskFromTde);
         h.DiskLight = Slider("    Light on ships", h.DiskLight, 0, 5);
-        h.Steps = (int)Slider("    Quality (ray steps; lower = faster)", h.Steps, 64, 600, "0");
-
         h.DiskDrag = Toggle("    Disk drag", h.DiskDrag);
         if (h.DiskDrag)
         {
@@ -259,12 +326,322 @@ internal sealed class SettingsWindow : MonoBehaviour
             h.DiskDragTimescale = Slider("      Grip time (s)", h.DiskDragTimescale, 0.1, 30);
             h.DiskBuffeting = Slider("      Buffeting", h.DiskBuffeting, 0, 5);
         }
-        if (GUI.changed) h.Edited = true;
+        DrawDiskAdvanced(h);
+    }
 
-        if (GUILayout.Button($"Reset {h.BodyName} to its config"))
+    /// <summary>A black hole's (or neutron star's) disk by parts: colours inside and out, brightness inside and out.</summary>
+    private static void DrawDiskParts(BlackHoleDefinition h)
+    {
+        h.DiskTint = Slider("    Disk colours by hand (0 = physical)", h.DiskTint, 0, 1);
+        if (h.DiskTint > 0)
         {
-            BlackHoles.ResetToConfig(index);
-            _status = $"{h.BodyName} reset to its config (Save to keep)";
+            h.InnerColor = ColorSliders("      Inner disk colour", h.InnerColor);
+            h.OuterColor = ColorSliders("      Outer disk colour", h.OuterColor);
+        }
+        h.InnerBrightness = Slider("    Inner disk brightness", h.InnerBrightness, 0, 5);
+        h.OuterBrightness = Slider("    Outer disk brightness", h.OuterBrightness, 0, 5);
+    }
+
+    /// <summary>The disk's finer settings, as it was tuned (BlackHole.shader's constants).</summary>
+    private static void DrawDiskAdvanced(BlackHoleDefinition h)
+    {
+        _advanced = Toggle("    Advanced: the disk's gas", _advanced);
+        if (!_advanced) return;
+        h.DiskDensity = Slider("      Density (tuned 45)", h.DiskDensity, 0, 200);
+        h.DiskOpacity = Slider("      Opacity (0.35)", h.DiskOpacity, 0, 3);
+        h.Emission = Slider("      Glow of the hot gas (3.6)", h.Emission, 0, 20);
+        h.CloudSize = Slider("      Lumps per horizon radius (0.45)", h.CloudSize, 0.05, 3);
+        h.SelfShadow = Slider("      Self-shadowing (0.9)", h.SelfShadow, 0, 5);
+        h.InnerLight = Slider("      Light from the inner disk (3)", h.InnerLight, 0, 20);
+        h.StreakWinding = Slider("      Streaks: winding (5)", h.StreakWinding, -20, 20);
+        h.StreakStretch = Slider("      Streaks: stretch along the orbit (30)", h.StreakStretch, 0, 200, "0");
+        h.StreakLanes = Slider("      Streaks: darkness between them (0.85)", h.StreakLanes, 0, 1);
+        h.ParticleSpacing = Slider("      Sparks & debris spacing (0.5; less = more)", h.ParticleSpacing, 0.05, 5);
+    }
+
+    /// <summary>A neutron star: its disk (as a black hole's), its surface, field lines, accretion columns and beams.</summary>
+    private static void DrawNeutronStar(BlackHoleDefinition h)
+    {
+        h.StarRadius = Slider("    Star radius (horizon radii; 2.9 = 12 km, 1.4 Suns)", h.StarRadius, 1.01, 10);
+        h.SurfaceTemperature = Slider("    Surface temperature (K)", h.SurfaceTemperature, 1000, 1e7, "0");
+        h.PeakTemperature = Slider("    Disk temperature (K)", h.PeakTemperature, 1000, 200000, "0");
+        h.ColorSaturation = Slider("    Disk colour strength", h.ColorSaturation, 0, 4);
+        h.Brightness = Slider("    Brightness", h.Brightness, 0, 50);
+        h.DiskInner = Slider("    Disk inner edge = magnetosphere (horizon radii)", h.DiskInner, h.StarRadius, 100);
+        h.DiskOuter = Slider("    Disk outer edge (horizon radii)", h.DiskOuter, h.DiskInner + 1, 500);
+        h.DiskThickness = Slider("    Disk thickness", h.DiskThickness, 0.01, 2);
+        h.Turbulence = Slider("    Puffiness / turbulence", h.Turbulence, 0, 1);
+        h.DiskStreaks = Slider("    Swirling streaks seen from above", h.DiskStreaks, 0, 1);
+        h.Particles = Slider("    Sparks", h.Particles, 0, 2);
+        h.Debris = Slider("    Debris", h.Debris, 0, 1);
+        h.RotationSpeed = Slider("    Disk spin speed", h.RotationSpeed, 0, 5);
+        h.Spin = Toggle("    Reverse spin", h.Spin < 0) ? -1.0 : 1.0;
+        DrawDiskParts(h);
+        h.AccretionColumns = Slider("    Accretion columns onto the poles", h.AccretionColumns, 0, 5);
+        if (h.AccretionColumns > 0) h.ColumnWidth = Slider("      Column width (fraction of the inner edge)", h.ColumnWidth, 0.01, 0.5, "0.000");
+        h.Hotspots = Slider("    Hot spots at the poles", h.Hotspots, 0, 20);
+        h.Beams = Slider("    Beams", h.Beams, 0, 5);
+        if (h.Beams > 0)
+        {
+            h.JetLength = Slider("      Beam length (horizon radii)", h.JetLength, 5, 2000, "0");
+            h.BeamWidth = Slider("      Beam widening", h.BeamWidth, 0, 0.5, "0.000");
+            h.JetColor = ColorSliders("      Beam colour", h.JetColor);
+        }
+        DrawFieldLines(h, "    Magnetic field lines");
+        DrawMagneticAxis(h);
+        DrawDiskAdvanced(h);
+    }
+
+    /// <summary>A star's dipole field lines: how bright, how many, how far, how thick, and their colour.</summary>
+    private static void DrawFieldLines(BlackHoleDefinition h, string label)
+    {
+        h.FieldLines = Slider(label, h.FieldLines, 0, 5);
+        if (h.FieldLines <= 0) return;
+        h.FieldLineCount = Slider("      Loops round the axis", h.FieldLineCount, 1, 64, "0");
+        h.FieldShells = Slider("      Nested shells", h.FieldShells, 1, 16, "0");
+        h.FieldShellRatio = Slider("      Each shell bigger by", h.FieldShellRatio, 1.05, 4);
+        h.FieldLineWidth = Slider("      Thickness", h.FieldLineWidth, 0.001, 0.1, "0.000");
+        h.ColorA = ColorSliders("      Field line colour", h.ColorA);
+    }
+
+    /// <summary>A text box for a list of numbers or a name; marks the panel changed when edited.</summary>
+    private static string TextRow(string label, string value)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(label, GUILayout.Width(300));
+        string entered = GUILayout.TextField(value ?? string.Empty, GUILayout.Width(170));
+        GUILayout.EndHorizontal();
+        if (entered == (value ?? string.Empty)) return value;
+        GUI.changed = true;
+        return entered.Trim();
+    }
+
+    /// <summary>A protoplanetary disk, debris disk or asteroid belt: its dust, gaps, rocks and the star that lights them.</summary>
+    private static void DrawDustyDisk(BlackHoleDefinition h)
+    {
+        h.Brightness = Slider("    Brightness", h.Brightness, 0, 50);
+        h.StarTemperature = Slider("    Star temperature (K)", h.StarTemperature, 1000, 50000, "0");
+        h.LightFalloff = Slider("    Light falloff (2 = physical; lower lights the outer parts)", h.LightFalloff, 0, 3);
+        h.DiskInner = Slider("    Inner edge (length units)", h.DiskInner, 0, 1000, "0.0");
+        h.DiskOuter = Slider("    Outer edge (length units)", h.DiskOuter, h.DiskInner + 0.1, 5000, "0.0");
+        h.DiskThickness = Slider("    Thickness (fraction of radius)", h.DiskThickness, 0.001, 0.5, "0.000");
+        h.Flaring = Slider("    Flaring (thicker outward)", h.Flaring, 0, 2);
+        h.Dust = Slider("    Dust", h.Dust, 0, 2, "0.000");
+        h.DustColor = ColorSliders("    Dust colour (inner)", h.DustColor);
+        h.OuterDustColor = ColorSliders("    Dust colour (outer edge)", h.OuterDustColor);
+        h.DensityFalloff = Slider("    Thinning outward (density ~ r^-this)", h.DensityFalloff, 0, 3);
+        h.EdgeSoftness = Slider("    Edge softness", h.EdgeSoftness, 0.1, 5);
+        GUILayout.Label("    Rings: gaps spread over the disk, or placed one by one:");
+        h.Rings = Slider("      Number of gaps (rings between them)", h.Rings, 0, 16, "0");
+        h.RingDepth = Slider("      Gap depth", h.RingDepth, 0, 1);
+        h.RingWidth = Slider("      Gap width (fraction of outer edge)", h.RingWidth, 0.001, 0.1, "0.000");
+        h.Gaps = TextRow("      Gaps by hand: radii (fractions of outer edge)", h.Gaps);
+        if (!string.IsNullOrEmpty(h.Gaps))
+        {
+            h.GapWidths = TextRow("      ...their widths (fractions of outer edge)", h.GapWidths);
+            h.GapDepths = TextRow("      ...their depths (0..1)", h.GapDepths);
+        }
+        h.SpiralArms = Slider("    Spiral arms", h.SpiralArms, 0, 16, "0");
+        if (h.SpiralArms > 0)
+        {
+            h.SpiralStrength = Slider("      Arm contrast", h.SpiralStrength, 0, 1);
+            h.SpiralWinding = Slider("      Winding", h.SpiralWinding, -20, 20);
+        }
+        h.Clumps = Slider("    Clumpiness", h.Clumps, 0, 2);
+        h.ClumpSize = Slider("    Clump size (more = smaller)", h.ClumpSize, 0.1, 10);
+        h.StarGlow = Slider("    Star's glow in the gas (fraction of outer edge)", h.StarGlow, 0, 0.5, "0.000");
+        h.ScatterAsymmetry = Slider("    Forward scattering of the grains (0.45 = dust)", h.ScatterAsymmetry, -0.9, 0.9);
+        h.RimGlow = Slider("    Inner rim glow", h.RimGlow, 0, 10);
+        if (h.RimGlow > 0) h.RimTemperature = Slider("      Rim temperature (K)", h.RimTemperature, 500, 5000, "0");
+        h.Rocks = Slider("    Rocks (share of places holding one)", h.Rocks, 0, 1, "0.000");
+        if (h.Rocks > 0)
+        {
+            h.RockSize = Slider("      Rock size", h.RockSize, 0, 5);
+            h.RockSizeSpread = Slider("      Size variety", h.RockSizeSpread, 0, 3);
+            h.RockSpacing = Slider("      Rock spacing (fraction of outer edge)", h.RockSpacing, 0.001, 0.05, "0.0000");
+            h.RockSpread = Slider("      Spread above and below (x thickness)", h.RockSpread, 0, 5);
+            h.RockAlbedo = Slider("      Rock brightness (albedo)", h.RockAlbedo, 0, 2);
+            h.RockMaxAngle = Slider("      Largest a rock looks up close (deg; 0 = no limit)", h.RockMaxAngle, 0, 5);
+            h.RockColor = ColorSliders("      Rock colour", h.RockColor);
+        }
+        h.RotationSpeed = Slider("    Spin speed", h.RotationSpeed, 0, 1, "0.000");
+        h.Spin = Toggle("    Reverse spin", h.Spin < 0) ? -1.0 : 1.0;
+        DrawFieldLines(h, "    Star's magnetic field lines");
+        if (h.FieldLines > 0) DrawMagneticAxis(h);
+    }
+
+    /// <summary>A nebula: its size, gas in two colours, filaments, dust lanes and shape.</summary>
+    private static void DrawNebula(BlackHoleDefinition h)
+    {
+        h.Brightness = Slider("    Brightness", h.Brightness, 0, 50);
+        h.DiskOuter = Slider("    Radius (length units)", h.DiskOuter, 1, 100000, "0");
+        h.Dust = Slider("    Gas", h.Dust, 0, 5);
+        h.ColorA = ColorSliders("    Gas colour (hydrogen)", h.ColorA);
+        h.ColorB = ColorSliders("    Other gas colour (oxygen)", h.ColorB);
+        h.Filaments = Slider("    Filaments", h.Filaments, 0, 5);
+        h.DustLanes = Slider("    Dark dust lanes", h.DustLanes, 0, 5);
+        h.CloudScale = Slider("    Billow size (more = smaller)", h.CloudScale, 0.1, 5);
+        h.CloudWarp = Slider("    Swirl", h.CloudWarp, 0, 3);
+        h.Shell = Slider("    Shell (a planetary nebula)", h.Shell, 0, 1);
+        h.CloudStretch = Slider("    Stretch along the normal (1 = round)", h.CloudStretch, 0.2, 5);
+        h.CloudRagged = Slider("    Ragged outline", h.CloudRagged, 0, 4);
+        h.CloudFill = Slider("    Emptiness between clouds (lower fills it)", h.CloudFill, -1, 2);
+        h.StarGlow = Slider("    A star inside: its glow (fraction of the radius)", h.StarGlow, 0, 1, "0.000");
+        if (h.StarGlow > 0) h.StarTemperature = Slider("      Its temperature (K)", h.StarTemperature, 1000, 100000, "0");
+        h.RotationSpeed = Slider("    Turning speed", h.RotationSpeed, 0, 0.1, "0.0000");
+        DrawFieldLines(h, "    Central star's magnetic field lines");
+    }
+
+    /// <summary>A galaxy: its size, bulge and bar, spiral arms, dust lanes and star-forming knots, and their colours.</summary>
+    private static void DrawGalaxy(BlackHoleDefinition h)
+    {
+        h.Brightness = Slider("    Brightness", h.Brightness, 0, 50);
+        h.DiskOuter = Slider("    Radius (length units)", h.DiskOuter, 1, 200000, "0");
+        h.DiskThickness = Slider("    Disk thickness (fraction of radius)", h.DiskThickness, 0.002, 0.3, "0.000");
+        h.BulgeSize = Slider("    Bulge size (fraction of radius)", h.BulgeSize, 0.01, 1, "0.000");
+        h.BulgeBrightness = Slider("    Bulge brightness", h.BulgeBrightness, 0, 5);
+        h.InnerColor = ColorSliders("    Bulge colour (old stars)", h.InnerColor);
+        h.BarLength = Slider("    Bar length (fraction of radius; 0 = none)", h.BarLength, 0, 0.6, "0.000");
+        h.SpiralArms = Slider("    Spiral arms (0 = an elliptical or lenticular galaxy)", h.SpiralArms, 0, 8, "0");
+        if (h.SpiralArms > 0)
+        {
+            h.SpiralWinding = Slider("      Winding (tighter = more)", h.SpiralWinding, -15, 15);
+            h.SpiralStrength = Slider("      Arm contrast", h.SpiralStrength, 0, 1);
+            h.ColorA = ColorSliders("      Arm colour (young stars)", h.ColorA);
+        }
+        h.OuterColor = ColorSliders("    Disk colour", h.OuterColor);
+        h.StarClusters = Slider("    Star-forming knots", h.StarClusters, 0, 5);
+        if (h.StarClusters > 0) h.ColorB = ColorSliders("      Knot colour", h.ColorB);
+        h.DustLanes = Slider("    Dust lanes", h.DustLanes, 0, 5);
+        h.Clumps = Slider("    Star clouds (mottling)", h.Clumps, 0, 2);
+        h.CloudWarp = Slider("    Irregularity", h.CloudWarp, 0, 2);
+        h.RotationSpeed = Slider("    Turning speed", h.RotationSpeed, 0, 0.1, "0.0000");
+    }
+
+    /// <summary>A comet: its coma, ion tail and dust tail, and the star that drives them.</summary>
+    private static void DrawComet(BlackHoleDefinition h)
+    {
+        h.Brightness = Slider("    Brightness", h.Brightness, 0, 50);
+        h.Activity = Slider("    Activity (0 = dormant)", h.Activity, 0, 5);
+        h.ComaSize = Slider("    Coma size (length units)", h.ComaSize, 0.01, 50);
+        h.ComaColor = ColorSliders("    Coma colour", h.ComaColor);
+        h.ComaBrightness = Slider("    Coma brightness", h.ComaBrightness, 0, 5);
+        h.NucleusBrightness = Slider("    Nucleus brightness", h.NucleusBrightness, 0, 5);
+        h.IonTailLength = Slider("    Ion tail length (length units)", h.IonTailLength, 1, 1000, "0");
+        h.IonTailWidth = Slider("    Ion tail width", h.IonTailWidth, 0.1, 5);
+        h.IonBrightness = Slider("    Ion tail brightness", h.IonBrightness, 0, 5);
+        h.Streamers = Slider("    Ion tail streamers & knots", h.Streamers, 0, 3);
+        h.ColorA = ColorSliders("    Ion tail colour", h.ColorA);
+        h.DustTailLength = Slider("    Dust tail length (length units)", h.DustTailLength, 1, 1000, "0");
+        h.DustTailCurve = Slider("    Dust tail curve", h.DustTailCurve, 0, 3);
+        h.DustTailWidth = Slider("    Dust tail spread", h.DustTailWidth, 0, 5);
+        h.DustBrightness = Slider("    Dust tail brightness", h.DustBrightness, 0, 5);
+        h.Striae = Slider("    Dust tail bands (striae)", h.Striae, 0, 3);
+        h.ColorB = ColorSliders("    Dust tail colour", h.ColorB);
+        h.LightSource = TextRow("    Driven by (a star; empty = the one it orbits):", h.LightSource);
+    }
+
+    /// <summary>A star's magnetic axis: along the normal, or swept round it like a pulsar's beams.</summary>
+    private static void DrawMagneticAxis(BlackHoleDefinition h)
+    {
+        h.BeamPeriod = Slider("    Magnetic axis: seconds per sweep (0 = along the normal)", h.BeamPeriod, 0, 30);
+        if (h.BeamPeriod > 0) h.BeamTilt = Slider("    Magnetic axis: tilt from the spin axis (deg)", h.BeamTilt, 0, 90, "0");
+    }
+
+    /// <summary>Size unit, orientation, quality and extent: every kind has them.</summary>
+    private static void DrawPlacement(BlackHoleDefinition h)
+    {
+        if (!h.IsBlackHole)
+        {
+            CelestialBody body = h.Body;
+            string unit = body != null ? $" = {FormatLength(h.HorizonMeters(body))}" : string.Empty;
+            h.HorizonRadiusMeters = Slider($"    Length unit (m; 0 = automatic){unit}", h.HorizonRadiusMeters, 0, 1e11, "0");
+        }
+        Vector3d n = h.Normal;
+        double nx = Slider("    Orientation: normal X", n.x, -1, 1, "0.000");
+        double ny = Slider("    Orientation: normal Y", n.y, -1, 1, "0.000");
+        double nz = Slider("    Orientation: normal Z", n.z, -1, 1, "0.000");
+        if (nx * nx + ny * ny + nz * nz > 1e-12) h.Normal = new Vector3d(nx, ny, nz);
+        h.Steps = (int)Math.Max(1.0, Math.Min(Slider("    Quality (ray steps; lower = faster)", h.Steps, 16, 5000, "0"), 1000000.0));
+        h.BoundRadius = Slider("    Drawn out to (units; 0 = automatic)", h.BoundRadius, 0, 5000, "0");
+    }
+
+    private static string FormatLength(double meters) =>
+        meters >= 1.495978707e10 ? (meters / 1.495978707e11).ToString("0.###", CultureInfo.InvariantCulture) + " AU"
+        : meters >= 1e4 ? (meters / 1e3).ToString("#,0", CultureInfo.InvariantCulture) + " km"
+        : meters.ToString("0.#", CultureInfo.InvariantCulture) + " m";
+
+    /// <summary>Three sliders (red, green, blue) for a colour; 1 is full strength, more is brighter.</summary>
+    private static Double3 ColorSliders(string label, Double3 c)
+    {
+        GUILayout.Label(label + ":");
+        double r = Slider(label + "  red", c.X, 0, 2);
+        double g = Slider(label + "  green", c.Y, 0, 2);
+        double b = Slider(label + "  blue", c.Z, 0, 2);
+        return new Double3(r, g, b);
+    }
+
+    /// <summary>The procedural rules: objects placed round every star of any planet pack (ProceduralObjects).</summary>
+    private void DrawProcedural()
+    {
+        SettingsValues r = BlackHoles.ProceduralRules;
+        GUILayout.Label("  Procedural objects: belts, Kuiper belts and comet tails placed round every star by rule:");
+        RuleToggle("    On", ProceduralObjects.Enabled, r);
+        if (!r.Get(ProceduralObjects.Enabled)) return;
+        int seed = r.Get(ProceduralObjects.Seed);
+        double newSeed = Slider("    Seed (varies them all)", seed, 0, 1000, "0");
+        if ((int)newSeed != seed) BlackHoles.SetProceduralRule(ProceduralObjects.Seed.Key, ((int)newSeed).ToString(CultureInfo.InvariantCulture));
+        RuleToggle("    Asteroid belts in the widest gap", ProceduralObjects.Belts, r);
+        RuleSlider("      Share of stars with one", ProceduralObjects.BeltChance, r, 0, 1);
+        RuleSlider("      Least gap (ratio of orbits)", ProceduralObjects.BeltMinGap, r, 1.1, 5);
+        RuleSlider("      Planets are at least (radius, m)", ProceduralObjects.PlanetMinRadius, r, 0, 1000000, "0");
+        RuleToggle("    Kuiper belts beyond the outermost planet", ProceduralObjects.OuterDisks, r);
+        RuleSlider("      Share of stars with one", ProceduralObjects.OuterDiskChance, r, 0, 1);
+        RuleToggle("    Comet tails", ProceduralObjects.Comets, r);
+        RuleSlider("      On bodies up to (radius, m)", ProceduralObjects.CometMaxRadius, r, 0, 200000, "0");
+        RuleSlider("      With eccentricity at least", ProceduralObjects.CometMinEccentricity, r, 0, 1);
+        RuleSlider("    Variety", ProceduralObjects.Variety, r, 0, 1);
+        RuleSlider("    Stars' temperature (K)", ProceduralObjects.StarTemperature, r, 1000, 40000, "0");
+        int count = BlackHoles.Definitions.FindAll(d => d.Procedural).Count;
+        GUILayout.BeginHorizontal();
+        GUILayout.Label($"    {count} placed.", GUILayout.Width(200));
+        if (GUILayout.Button("Place them again")) BlackHoles.PlanProcedural();
+        GUILayout.EndHorizontal();
+    }
+
+    private static void RuleToggle(string label, BoolSetting setting, SettingsValues r)
+    {
+        bool value = r.Get(setting);
+        if (Toggle(label, value) != value) BlackHoles.SetProceduralRule(setting.Key, value ? "False" : "True");
+    }
+
+    private static void RuleSlider(string label, DoubleSetting setting, SettingsValues r, double min, double max, string format = "0.00")
+    {
+        double value = r.Get(setting);
+        double changed = Slider(label, value, min, max, format);
+        if (changed != value)
+            BlackHoles.SetProceduralRule(setting.Key, Math.Min(Math.Max(changed, setting.Min), setting.Max).ToString("R", CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Adds an object of any kind round any body (kept in user.cfg once saved).</summary>
+    private void DrawAddObject()
+    {
+        var bodies = FlightGlobals.fetch != null ? FlightGlobals.Bodies : null;
+        if (bodies == null || bodies.Count == 0) return;
+        GUILayout.Label("  Add an object round a body (no vessels; drawn by the shader):");
+        _addBody = Math.Min(Math.Max(_addBody, 0), bodies.Count - 1);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("<", GUILayout.Width(30))) _addBody = (_addBody + bodies.Count - 1) % bodies.Count;
+        CelestialBody pick = bodies[_addBody];
+        GUILayout.Label("    " + (pick != null ? pick.bodyName : "?"), GUILayout.Width(200));
+        if (GUILayout.Button(">", GUILayout.Width(30))) _addBody = (_addBody + 1) % bodies.Count;
+        GUILayout.EndHorizontal();
+        _addKind = GUILayout.SelectionGrid(_addKind, SpaceObjects.KindNames, 4);
+        if (pick != null && GUILayout.Button($"Add a {SpaceObjects.KindName((SpaceObjectKind)_addKind)} round {pick.bodyName}"))
+        {
+            BlackHoles.Add(pick.bodyName, (SpaceObjectKind)_addKind);
+            _openHole = BlackHoles.Definitions.Count - 1;
+            _status = $"Added; set it up below its name and Save to keep it";
         }
     }
 
@@ -332,13 +709,38 @@ internal sealed class SettingsWindow : MonoBehaviour
 
     private static bool Toggle(string label, bool value) => GUILayout.Toggle(value, " " + label);
 
+    private static readonly System.Collections.Generic.Dictionary<string, string> Typed = new System.Collections.Generic.Dictionary<string, string>();
+
+    /// <summary>
+    /// A labelled slider over a handy range, with a box to type any value at all (no limits). The value only changes
+    /// when the player drags the slider or types a number: just opening a panel never clamps anything.
+    /// </summary>
     private static double Slider(string label, double value, double min, double max, string format = "0.00")
     {
         GUILayout.BeginHorizontal();
         GUILayout.Label(label, GUILayout.Width(230));
-        float v = GUILayout.HorizontalSlider((float)value, (float)min, (float)max, GUILayout.Width(180));
-        GUILayout.Label(v.ToString(format, CultureInfo.InvariantCulture), GUILayout.Width(50));
+        float shown = (float)Math.Max(min, Math.Min(max, value));
+        float v = GUILayout.HorizontalSlider(shown, (float)min, (float)max, GUILayout.Width(160));
+        string name = "KSPVE value " + label;
+        if (v != shown)
+        {
+            value = Math.Round(v, 3);
+            Typed.Remove(name);
+        }
+        // While the box has the keyboard, it shows what is being typed; otherwise the value itself.
+        bool typing = GUI.GetNameOfFocusedControl() == name;
+        string current = value.ToString(format, CultureInfo.InvariantCulture);
+        string text = typing && Typed.TryGetValue(name, out string t) ? t : current;
+        GUI.SetNextControlName(name);
+        string entered = GUILayout.TextField(text, GUILayout.Width(80));
+        if (entered != text)
+        {
+            Typed[name] = entered;
+            if (double.TryParse(entered, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) && !double.IsNaN(parsed) && !double.IsInfinity(parsed))
+                value = parsed;
+        }
+        else if (!typing) Typed.Remove(name);
         GUILayout.EndHorizontal();
-        return Math.Round(v, 3);
+        return value;
     }
 }

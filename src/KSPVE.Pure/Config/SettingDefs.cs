@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using KSPVE.Pure.Numerics;
 
 namespace KSPVE.Pure.Config;
 
@@ -117,6 +118,25 @@ public sealed class StringSetting : SettingDef<string>
         if (!string.IsNullOrEmpty(s)) return s;
         return Fallback(path, issues, "value is empty");
     }
+}
+
+/// <summary>A colour: three numbers "r, g, b" (linear; 1 is full strength, more is brighter, none negative).</summary>
+public sealed class ColorSetting : SettingDef<Double3>
+{
+    public ColorSetting(string key, Double3 defaultValue, string description) : base(key, defaultValue, description) { }
+
+    protected override Double3 Parse(string raw, string path, List<ConfigIssue> issues)
+    {
+        string[] parts = (raw ?? string.Empty).Split(new[] { ',', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        var c = new double[3];
+        bool ok = parts.Length == 3;
+        for (int i = 0; ok && i < 3; i++)
+            ok = double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out c[i]) && c[i] >= 0.0 && !double.IsInfinity(c[i]);
+        return ok ? new Double3(c[0], c[1], c[2]) : Fallback(path, issues, $"'{raw}' is not three numbers r, g, b (none negative)");
+    }
+
+    /// <summary>The colour as a config value, "r, g, b".</summary>
+    public static string Write(Double3 c) => string.Format(CultureInfo.InvariantCulture, "{0:0.####}, {1:0.####}, {2:0.####}", c.X, c.Y, c.Z);
 }
 
 public sealed class EnumSetting<TEnum> : SettingDef<TEnum> where TEnum : struct, Enum

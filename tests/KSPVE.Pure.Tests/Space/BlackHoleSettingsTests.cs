@@ -113,6 +113,18 @@ public class BlackHoleSettingsTests
     }
 
     [Test]
+    public void BigDisks_GetMoreSteps_NormalOnesNone()
+    {
+        Assert.That(BlackHoleSettings.ExtraSteps(14.0), Is.EqualTo(0), "the disks the renderer was tuned for are unchanged");
+        Assert.That(BlackHoleSettings.ExtraSteps(BlackHoleSettings.DetailRadius), Is.EqualTo(0));
+        int big = BlackHoleSettings.ExtraSteps(2026.0);   // 130 AU round Kcalbeloh
+        Assert.That(big, Is.InRange(400, 500));
+        Assert.That(BlackHoleSettings.ExtraSteps(20000.0), Is.GreaterThan(big), "more for bigger, but only logarithmically");
+        SettingsValues v = BlackHoleSettings.Schema.Resolve(null, new List<ConfigIssue>());
+        Assert.That(v.Get(BlackHoleSettings.OuterGlow), Is.EqualTo(0.0), "physical unless a config asks");
+    }
+
+    [Test]
     public void HeaviestAbove_PicksTheBlackHole_NotOrdinaryStars()
     {
         // Kerbol, real Sun, Kcalbeloh, a gas giant.

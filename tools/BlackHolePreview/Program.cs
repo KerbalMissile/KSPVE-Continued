@@ -11,14 +11,35 @@ using System.Threading.Tasks;
 internal static partial class Program
 {
     // Kcalbeloh defaults (KSPVE_BLACKHOLE_Kcalbeloh.cfg)
-    const float Inner = 3f, Outer = 14f, Thickness = 0.12f, Turbulence = 0.8f, Spin = 1f, RotationSpeed = 1f;
+    static readonly float Inner = EnvFloat("BH_INNER", 3f), Outer = EnvFloat("BH_OUTER", 14f), Thickness = EnvFloat("BH_THICK", 0.12f);
+    const float Turbulence = 0.8f, Spin = 1f, RotationSpeed = 1f;
     const float Ring = 1f;
     static readonly float Glow = EnvFloat("BH_GLOW", 1f);
     // Look, overridable for tuning: BH_PEAK (kelvin), BH_SAT (colour saturation) and BH_BRIGHT environment variables.
-    static readonly float PeakK = EnvFloat("BH_PEAK", 40000f), Saturation = EnvFloat("BH_SAT", 3.4f), Brightness = EnvFloat("BH_BRIGHT", 3.5f);
+    // The disk's parts (diskTint, innerColor, outerColor, innerBrightness, outerBrightness, jetColor, photonRingColor).
+    static float DiskTint = EnvFloat("BH_TINT", 0f), InnerBrightness = EnvFloat("BH_INNERBRIGHT", 1f), OuterBrightness = EnvFloat("BH_OUTERBRIGHT", 1f);
+    static Vector3 TintInner = EnvVec("BH_INNERCOLOR", new Vector3(1f, 0.85f, 0.6f)), TintOuter = EnvVec("BH_OUTERCOLOR", new Vector3(1f, 0.45f, 0.15f));
+    static Vector3 JetColor = EnvVec("BH_JETCOLOR", new Vector3(0.3f, 0.55f, 1f)), RingColor = EnvVec("BH_RINGCOLOR", new Vector3(0.9f, 0.95f, 1f));
+    static float Luma(Vector3 c) => 0.2126f * c.X + 0.7152f * c.Y + 0.0722f * c.Z;
+    static Vector3 EnvVec(string name, Vector3 fallback)
+    {
+        string s = Environment.GetEnvironmentVariable(name);
+        if (string.IsNullOrEmpty(s)) return fallback;
+        string[] p = s.Split(',');
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        return new Vector3(float.Parse(p[0], ci), float.Parse(p[1], ci), float.Parse(p[2], ci));
+    }
+    static float PeakK = EnvFloat("BH_PEAK", 40000f), Saturation = EnvFloat("BH_SAT", 3.4f), Brightness = EnvFloat("BH_BRIGHT", 3.5f);   // an object's config may set them
     static float EnvFloat(string name, float fallback) =>
         float.TryParse(Environment.GetEnvironmentVariable(name), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : fallback;
-    static int MaxSteps = 300;
+    static int MaxSteps = (int)EnvFloat("BH_STEPS", 300f);
+    // Beyond this radius (horizon radii) the disk's clumps, and the march's steps through it, grow with the radius, so a
+    // disk of any size looks alike at every scale and costs about the same to draw.
+    const float DetailRadius = 20f;
+    // Display aid: the outer disk (beyond DetailRadius) shown as if exposed for it, lit by the inner disk (0 = physical).
+    static readonly float OuterGlow = EnvFloat("BH_OUTERGLOW", 0f);
+    [ThreadStatic] static Vector3 CloudPw1;
+    [ThreadStatic] static float CloudBlend;
     // Jets along the spin axis: strength (BH_JET, 0 = off), length (horizon radii), collimation (width = JetWidth * z^0.55),
     // gas speed (fraction of c) and the visual outward flow of the knots (horizon radii per second).
     static readonly float JetStrength = EnvFloat("BH_JET", 1.3f);
@@ -63,6 +84,9 @@ internal static partial class Program
 
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && (args[0] == "object" || args[0] == "object-cfg")) return RenderObject(args);
+        if (args.Length > 0 && args[0] == "star") return RenderStar(args);
+        if (args.Length > 0 && args[0] == "procedural") return ProceduralTool.Run(args);
         if (args.Length > 0 && args[0] == "tde-info") return TdeInfo.Run(args);
         if (args.Length > 0 && args[0] == "tde") return RenderTde(args);
         if (args.Length > 0 && args[0] == "tde-svg") return TdeSvg.Run(args);
@@ -110,6 +134,7 @@ internal static partial class Program
         float distance = args.Length > 4 ? float.Parse(args[4]) : 32f;
         Time = args.Length > 5 ? float.Parse(args[5]) : 0f;
 
+        SkyOn = Environment.GetEnvironmentVariable("BH_SKY") == "1";   // a starfield behind, lensed by the hole
         // Camera looking at the hole from 'distance' horizon radii, 'inclination' from the disk normal.
         Vector3 camPos = new Vector3(0, MathF.Cos(inclination), -MathF.Sin(inclination)) * distance;
         Vector3 forward = Vector3.Normalize(-camPos);
@@ -165,8 +190,11 @@ internal static partial class Program
         bool captured = false;
         float rMin = 1e9f;
         Vector3 hazeColor = Saturate(Blackbody(PeakK * 0.6f));
+        if (DiskTint > 0f) hazeColor = Vector3.Lerp(hazeColor, TintInner * (Luma(hazeColor) / MathF.Max(Luma(TintInner), 1e-4f)), DiskTint);
         LastExit = "steps";
-        for (int k = 0; k < MaxSteps; k++)
+        // A disk bigger than DetailRadius gets more steps: rays may skim hundreds of horizon radii of it.
+        int steps = MaxSteps + (OuterNow > DetailRadius ? (int)(100f * MathF.Log(OuterNow / DetailRadius)) : 0);
+        for (int k = 0; k < steps; k++)
         {
             LastSteps = k;
             float r = x.Length();
@@ -174,9 +202,13 @@ internal static partial class Program
             if (r < 1f) { captured = true; LastExit = "captured"; break; }
             if (r > Bound * 1.001f && Vector3.Dot(x, v) > 0) { LastExit = "escaped"; break; }
             float nearPlane = MathF.Abs(Vector3.Dot(x, N));
-            float dtCap = TdeOn && r > TdeCore ? 0.08f * r : 2f;   // beyond the disk & jets the event may need long strides
+            // A disk bigger than DetailRadius: its clumps, and so the steps, grow with the radius out there. Smaller disks
+            // keep the fixed steps they were tuned with.
+            float grain = OuterNow > DetailRadius ? MathF.Max(1f, r / DetailRadius) : 1f;
+            float dtCap = TdeOn && r > TdeCore ? 0.08f * r : 2f * grain;   // beyond the disk & jets the event may need long strides
             float dt = Math.Clamp(MathF.Min(0.08f * r, 0.35f * MathF.Max(nearPlane, 0.3f * Thickness * r)), 0.004f, dtCap);
-            if (nearPlane < 5f * ThickNow * r && r < OuterNow * 1.2f) dt = MathF.Min(dt, 0.2f); // fine steps inside the cloud layer
+            // Fine steps inside the cloud layer: about three per clump out where the clumps are big.
+            if (nearPlane < 5f * ThickNow * r && r < OuterNow * 1.2f) dt = MathF.Min(dt, 0.2f * grain * MathF.Min(grain, 3f));
             if (JetNow > 0 && nearPlane > 1.1f * (1f - JetSpiral) && nearPlane < JetLengthNow)                       // and inside the jets
             {
                 float jetR = JetWidth * MathF.Pow(nearPlane + JetBase * JetSpiral, 0.55f);
@@ -221,7 +253,7 @@ internal static partial class Program
         {
             float d = (rMin - 1.5f) / 0.045f;
             float faceOn = Streaks * SmoothStep(StreakFrom, StreakFull, FaceOn);   // fainter seen from above, as the streaks come in
-            color += new Vector3(0.9f, 0.95f, 1f) * (Ring * (1f - StreakRingDim * faceOn) * 8f * MathF.Exp(-d * d));
+            color += RingColor * (Ring * (1f - StreakRingDim * faceOn) * 8f * MathF.Exp(-d * d));
         }
 
         // The sky behind, seen along the bent ray: in the game this is KSP's skybox (lensed by Singularity).
@@ -289,15 +321,26 @@ internal static partial class Program
 
         // Puffy, irregular surface: big rounded lumps with smaller billows on them bulge the disk's half-height.
         float cloud = 1f - d.Face, warp = 0f, lumps = 0f, billows = 0f;
+        CloudBlend = 0f;
         if (cloud > 0f)
         {
-            // True 3D position in the rotating frame, with light turbulent offsets.
-            Vector3 pc = new Vector3(r * MathF.Cos(angle), r * MathF.Sin(angle), height) * d.Cloud;
-            Vector3 w = new Vector3(Noise3(pc * 0.5f + new Vector3(11.3f)), Noise3(pc * 0.5f + new Vector3(27.1f)), Noise3(pc * 0.5f + new Vector3(41.7f))) - new Vector3(0.5f);
-            pw = pc + w * 0.5f;
-            warp = (Noise3(pc * 0.3f + new Vector3(3.3f)) - 0.5f) * 0.8f * cloud;
-            lumps = Fbm(pw) * cloud;
-            billows = (1f - MathF.Abs(2f * Noise3(pw * 2.7f + new Vector3(5.1f)) - 1f)) * cloud;
+            // True 3D position in the rotating frame. Beyond DetailRadius the clumps grow with the radius: the noise is
+            // taken at the two power-of-two scales around the wanted one and blended, so it stays seamless.
+            Vector3 pd = new Vector3(r * MathF.Cos(angle), r * MathF.Sin(angle), height);
+            float level = MathF.Log2(MathF.Max(1f, re / DetailRadius));
+            int k0 = (int)level;
+            float blend = level - k0;
+            Clouds(pd, k0, d.Cloud, out pw, out float w0, out float l0, out float b0);
+            if (blend > 0.001f)
+            {
+                Clouds(pd, k0 + 1, d.Cloud, out Vector3 pw1, out float w1, out float l1, out float b1);
+                w0 += (w1 - w0) * blend; l0 += (l1 - l0) * blend; b0 += (b1 - b0) * blend;
+                CloudPw1 = pw1;
+                CloudBlend = blend;
+            }
+            warp = w0 * cloud;
+            lumps = l0 * cloud;
+            billows = b0 * cloud;
         }
         if (d.Face > 0f)
         {
@@ -307,7 +350,8 @@ internal static partial class Program
             float stretch = 1f + StreakStretch;
             float a = angle + d.Spin * d.Winding * MathF.Log(re / d.Inner);
             float ring = StreakRing / MathF.Sqrt(stretch);
-            ps = new Vector3(ring * MathF.Cos(a), ring * MathF.Sin(a), (re * StreakRadial + 0.8f * height) * d.Cloud);
+            ps = new Vector3(ring * MathF.Cos(a), ring * MathF.Sin(a),
+                (StreakRadius(re) * StreakRadial + 0.8f * height * DetailRadius / MathF.Max(re, DetailRadius)) * d.Cloud);
             lumps += Fbm(ps) * d.Face;
             billows += (1f - MathF.Abs(2f * Noise3(ps * 2.7f + new Vector3(5.1f)) - 1f)) * d.Face;
         }
@@ -324,14 +368,34 @@ internal static partial class Program
         return body * radial * (DensityScale / re) * d.Presence;
     }
 
+    /// <summary>The disk's cloud noise at scale level (2^-level of the inner disk's clump frequency), with its warped position.</summary>
+    static void Clouds(Vector3 pd, int level, float cloudScale, out Vector3 pw, out float warp, out float lumps, out float billows)
+    {
+        Vector3 pc = pd * (cloudScale * MathF.Pow(2f, -level)) + new Vector3(17.3f, 5.1f, 9.7f) * level;
+        Vector3 w = new Vector3(Noise3(pc * 0.5f + new Vector3(11.3f)), Noise3(pc * 0.5f + new Vector3(27.1f)), Noise3(pc * 0.5f + new Vector3(41.7f))) - new Vector3(0.5f);
+        pw = pc + w * 0.5f;
+        warp = (Noise3(pc * 0.3f + new Vector3(3.3f)) - 0.5f) * 0.8f;
+        lumps = Fbm(pw);
+        billows = 1f - MathF.Abs(2f * Noise3(pw * 2.7f + new Vector3(5.1f)) - 1f);
+    }
+
+    /// <summary>The radius the streak pattern runs on: the radius itself, then logarithmic beyond DetailRadius.</summary>
+    static float StreakRadius(float r) => r <= DetailRadius ? r : DetailRadius * (1f + MathF.Log(r / DetailRadius));
+
     static void AccumulateDisk(in DiskP d, Vector3 x, Vector3 v, float dt, float traveled, ref Vector3 color, ref float transmittance)
     {
         float shape = DiskShape(d, x, out float r, out Vector3 pw, out Vector3 ps);
         if (shape < 1e-3f) return;
         // From above the streak pattern varies across the disk only, not up through it, so it stays smooth.
-        Vector3 flat = new Vector3(ps.X, ps.Y, r * StreakRadial * d.Cloud);
+        Vector3 flat = new Vector3(ps.X, ps.Y, StreakRadius(r) * StreakRadial * d.Cloud);
         float streakHeat = d.Face > 0f ? Fbm(flat * 1.3f + new Vector3(9.1f)) : 0f;
-        float heat = (d.Face < 1f ? Fbm(pw * 1.3f + new Vector3(9.1f)) * (1f - d.Face) : 0f) + streakHeat * d.Face;
+        float cloudHeat = 0f;
+        if (d.Face < 1f)
+        {
+            cloudHeat = Fbm(pw * 1.3f + new Vector3(9.1f));
+            if (CloudBlend > 0f) cloudHeat += (Fbm(CloudPw1 * 1.3f + new Vector3(9.1f)) - cloudHeat) * CloudBlend;
+        }
+        float heat = cloudHeat * (1f - d.Face) + streakHeat * d.Face;
         float density = shape * (0.6f + 0.4f * heat); // hot clumps inside a continuous body: no holes
         float lane = 1f;
         if (d.Face > 0f)
@@ -359,9 +423,16 @@ internal static partial class Program
         const float hgG = 0.35f;
         float phase = 0.25f + 0.75f * (1 - hgG * hgG) / MathF.Pow(1 + hgG * hgG - 2 * hgG * cosScatter, 1.5f);
         float incident = LightStrength * MathF.Pow(d.Inner / MathF.Max(r, d.Inner), 2f);
+        // outerGlow: beyond DetailRadius the disk is shown as if exposed for it, lit by the inner disk: warmed by its light
+        // (an irradiated disk's temperature falls only as r^-1/2), the inverse-square falloff made up, and the light it
+        // scatters in the inner disk's colour.
+        float outer = OuterGlow * SmoothStep(DetailRadius, 3f * DetailRadius, r);
+        float exposure = 1f + outer * (Sq(r / DetailRadius) - 1f);
+        incident *= exposure;
 
         float knots = SmoothStep(0.45f, 0.75f, heat) * d.Turb;
         float temperature = DiskTemperature(r, d.Inner, d.Peak) * (0.9f + (0.3f + StreakHeat * d.Face) * knots);
+        if (outer > 0f) temperature = MathF.Max(temperature, d.Peak * 0.3f * MathF.Sqrt(d.Inner / r) * (0.9f + 0.3f * knots) * MathF.Min(outer, 1f));
         Vector3 orbit = Vector3.Normalize(Vector3.Cross(d.N, x - Vector3.Dot(x, d.N) * d.N)) * d.Spin;
         float beta = MathF.Min(MathF.Sqrt(0.5f / MathF.Max(r - 1f, 0.05f)), 0.95f);
         float gamma = 1f / MathF.Sqrt(1 - beta * beta);
@@ -375,10 +446,20 @@ internal static partial class Program
         // crevices, plus light from the inner disk scattered off the bulges.
         // From above the colour is softer: the bright streaks go white-blue rather than cyan.
         Vector3 hot = Saturate(Blackbody(temperature * g), Saturation + (StreakSaturation - Saturation) * d.Face);
+        // The disk's parts by hand (diskTint): colours shading from the inner to the outer edge (keeping each part's
+        // brightness), and brightness inside and out, over the log of the radius.
+        float span = Math.Clamp(MathF.Log(r / d.Inner) / MathF.Max(MathF.Log(d.Outer / d.Inner), 1e-3f), 0f, 1f);
+        if (DiskTint > 0f)
+        {
+            Vector3 tint = Vector3.Lerp(TintInner, TintOuter, span);
+            hot = Vector3.Lerp(hot, tint * (Luma(hot) / MathF.Max(Luma(tint), 1e-4f)), DiskTint);
+        }
+        float partBrightness = InnerBrightness + (OuterBrightness - InnerBrightness) * span;
         float shade = 0.3f + 0.7f * lightTransmittance;
-        Vector3 thermal = hot * (MathF.Pow(temperature / d.Peak, 3) * EmissionStrength * (0.6f + 1.4f * knots) * shade);
-        Vector3 scattered = hot * (incident * lightTransmittance * phase * 0.4f);
-        color += transmittance * (thermal + scattered) * (d.Bright * beaming * density * lane * dt);
+        Vector3 thermal = hot * (MathF.Pow(temperature / d.Peak, 3) * EmissionStrength * (0.6f + 1.4f * knots) * shade * exposure);
+        Vector3 lightColor = outer > 0f ? Vector3.Lerp(hot, Saturate(Blackbody(d.Peak * 0.8f)), MathF.Min(outer, 1f)) : hot;
+        Vector3 scattered = lightColor * (incident * lightTransmittance * phase * 0.4f);
+        color += transmittance * (thermal + scattered) * (d.Bright * beaming * density * lane * dt * partBrightness);
         transmittance *= MathF.Exp(-density * Absorb * dt);
 
         AccumulateParticles(d, x, x + v * dt, traveled, Math.Clamp(shape / 5f, 0f, 1f) * (1f - d.Face * (1f - StreakExposure)), temperature, g, ref color, ref transmittance);
@@ -449,7 +530,7 @@ internal static partial class Program
         float beam = MathF.Min(1f / (boost * boost * boost * gamma * gamma * gamma), 10f);   // D^3 / gamma^3 (D = 1 / boost), capped
                                                                                             // so a jet seen end-on doesn't drown the view
 
-        Vector3 jetColor = Vector3.Lerp(new Vector3(0.3f, 0.55f, 1f), Vector3.One, Math.Clamp(0.4f * density * beam / 8f, 0f, 0.35f));
+        Vector3 jetColor = Vector3.Lerp(JetColor, Vector3.One, Math.Clamp(0.4f * density * beam / 8f, 0f, 0.35f));
         color += transmittance * jetColor * (JetNow * 2.5f * density * beam * dt);
         transmittance *= MathF.Exp(-JetAbsorb * gas * dt / R);
     }

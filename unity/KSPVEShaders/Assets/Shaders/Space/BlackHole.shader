@@ -2,7 +2,8 @@ Shader "Hidden/KSPVE/Space/BlackHole"
 {
     // Relativistic black hole with a thick, puffy, self-shadowed volumetric accretion disk that spins as a whole,
     // with sparks and debris riding in it (catalog #80, #81). A tidal disruption event, when a save runs one, is drawn in
-    // the same march (TdeSample).
+    // the same march (TdeSample). Pass 2 draws the other kinds of object (SpaceObjects): neutron stars, dusty disks,
+    // asteroid belts, nebulae and comets.
     // Pass 0 ray-marches the hole over a screen rectangle that covers its bounding sphere, premultiplied, either
     // straight onto Camera ScaledSpace after transparents or into a reduced-resolution buffer; pass 1 composites
     // that buffer. Rays are integrated in units of the horizon radius r_s (so M = 1/2) with the photon-orbit law
@@ -31,8 +32,47 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                                           // z: spiral shocks while it forms 0..1, w: glow of the jet heads punching out 0..1
             #define BH_OCCLUDERS 8
             float4 _KSPVE_BHOccluders[BH_OCCLUDERS]; // bodies that may be in front: xyz centre relative to the eye, w radius (horizon radii; 0 = none)
-            float4 _KSPVE_BHStreak;       // x: how much of the streak look this view gets 0..1 (BlackHoleSettings.StreakView)
+            float4 _KSPVE_BHStreak;       // x: how much of the streak look this view gets 0..1 (BlackHoleSettings.StreakView); y: outerGlow
             float4 _KSPVE_BHMask;         // a forming disk fills only this band (horizon radii): x inner, y outer, z edge width (0 = all of it)
+            float4 _KSPVE_BHTint;         // the disk's parts: x colours by hand 0..1 (diskTint), y inner brightness, z outer brightness
+            float4 _KSPVE_BHTintInner;    // rgb: the inner disk's colour (and the glow's) by hand
+            float4 _KSPVE_BHTintOuter;    // rgb: the outer disk's colour by hand
+            float4 _KSPVE_BHJetColor;     // rgb: the jets' colour (and a neutron star's beams')
+            float4 _KSPVE_BHRingColor;    // rgb: the photon ring's colour
+            float4 _KSPVE_BHAdvanced;     // the disk, advanced: x density, y opacity, z emission, w lumps per horizon radius
+            float4 _KSPVE_BHAdvanced2;    // x self-shadowing, y light from the inner disk, z streak winding, w streak stretch
+            float4 _KSPVE_BHAdvanced3;    // x darkness of the lanes between streaks, y spacing of sparks and debris
+
+            // The other kinds of object (KSPVE.Pure.Space.SpaceObjects), drawn by pass 2 in their own units (the w of
+            // _KSPVE_BHCenter), round the body at _KSPVE_BHCenter. They share the hole's uniforms: _KSPVE_BHDisk (inner, outer,
+            // half-thickness), _KSPVE_BHNormal (the disk's normal), _KSPVE_BHLook (brightness, rotation, time), _KSPVE_BHJetAxis
+            // (a neutron star's magnetic axis), _KSPVE_BHRay (steps, bound) and the occluders.
+            float4 _KSPVE_ObjKind;        // x: kind (SpaceObjectKind), y: the star's radius (rays stop there), z: its temperature (K), w: a neutron star's surface temperature (K)
+            float4 _KSPVE_ObjShape;       // dusty disks: x flaring, y gaps (in _KSPVE_ObjGaps)
+            float4 _KSPVE_ObjGaps[16];    // dusty disks' gaps (DiskGaps): x radius, y width (units), z depth 0..1
+            float4 _KSPVE_ObjOuterDust;   // rgb: the dust's colour at the outer edge (dustColor at the inner)
+            float4 _KSPVE_ObjRockColor;   // rgb: the rocks' colour
+            float4 _KSPVE_ObjDust;        // dust, light falloff exponent, star glow (fraction of the outer radius), rock spacing (units)
+            float4 _KSPVE_ObjRocks;       // rocks 0..1, rock size, rock albedo, w: the widest a rock may look (radius over distance; 0 = no limit)
+            float4 _KSPVE_ObjCloud;       // nebula: dust lanes, cloud scale, cloud warp, filaments
+            float4 _KSPVE_ObjNeutron;     // neutron star: field lines, accretion columns, beams, beam length
+            float4 _KSPVE_ObjComet;       // comet: activity, coma size, ion tail length, dust tail length
+            float4 _KSPVE_ObjComet2;      // comet: dust tail curve, dust tail width
+            float4 _KSPVE_ObjColorA;      // rgb: nebula gas, comet ion tail, neutron star field lines
+            float4 _KSPVE_ObjColorB;      // rgb: nebula's other gas, comet dust tail
+            float4 _KSPVE_ObjDustColor;   // rgb: dust
+            float4 _KSPVE_ObjComaColor;   // rgb: comet coma
+            float4 _KSPVE_ObjSun;         // xyz: comet: towards its star
+            float4 _KSPVE_ObjVel;         // xyz: comet: its direction of motion
+            float4 _KSPVE_ObjExtra;       // x: nebula: how much of its gas lies in a hollow shell (a planetary nebula) 0..1; y: comet: dust tail striae
+            float4 _KSPVE_ObjDisk2;       // dusty disks: x density falloff exponent, y edge softness, z clumpiness, w clump size
+            float4 _KSPVE_ObjDisk3;       // dusty disks: x scattering asymmetry g, y rim glow, z rim temperature (K), w rocks' vertical spread
+            float4 _KSPVE_ObjSpiral;      // dusty disks: x spiral arms, y their contrast 0..1, z winding; w: rocks' size spread
+            float4 _KSPVE_ObjCloud2;      // nebula: x stretch along the normal, y raggedness, z emptiness between clouds
+            float4 _KSPVE_ObjComet3;      // comet: brightness of x coma, y ion tail, z dust tail, w false nucleus
+            float4 _KSPVE_ObjField;       // field lines: x loops round the axis, y shells, z shell ratio, w width (fraction of distance)
+            float4 _KSPVE_ObjNeutron2;    // neutron star: x column width (fraction of inner radius), y beam widening, z hot spots
+            float4 _KSPVE_ObjGalaxy;      // galaxy: x bulge size, y bulge brightness, z bar length (fractions of its radius), w star-forming knots
 
             // A tidal disruption event (KSPVE.Pure.Space.Tde.TidalDisruption, one TdeFrame), in horizon radii around the
             // hole. tools/BlackHolePreview/TdeRender.cs is the line-for-line CPU copy of this part.
@@ -59,25 +99,29 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             float4 _KSPVE_TdeFlash;            // xyz: the periapsis flash (shock breakout), w: its strength, 0 = none
             float4 _KSPVE_TdeFlashLook;        // x: the flash's radius
 
-            static const float Absorb = 0.35;           // extinction per unit density along the view (low: the disk is a bit translucent)
-            static const float ShadowAbsorb = 0.9;      // extinction towards the inner disk (keeps the puffy self-shadowing)
-            static const float LightStrength = 3.0;     // light from the inner disk that lights the bulges
-            static const float DensityScale = 45.0;     // disk density (divided by radius)
-            static const float CloudScale = 0.45;       // puffy lumps per horizon radius
-            static const float EmissionStrength = 3.6;  // the plasma's own thermal glow
-            static const float ParticleCell = 0.5;      // horizon radii per particle cell
+            // The disk's advanced settings (BlackHoleSettings; the look was tuned at the values in brackets).
+            #define Absorb (_KSPVE_BHAdvanced.y)           // extinction per unit density along the view [0.35] (low: a bit translucent)
+            #define ShadowAbsorb (_KSPVE_BHAdvanced2.x)    // extinction towards the inner disk [0.9] (keeps the puffy self-shadowing)
+            #define LightStrength (_KSPVE_BHAdvanced2.y)   // light from the inner disk that lights the bulges [3]
+            #define DensityScale (_KSPVE_BHAdvanced.x)     // disk density (divided by radius) [45]
+            #define CloudScale (_KSPVE_BHAdvanced.w)       // puffy lumps per horizon radius [0.45]
+            #define EmissionStrength (_KSPVE_BHAdvanced.z) // the plasma's own thermal glow [3.6]
+            #define ParticleCell (_KSPVE_BHAdvanced3.y)  // horizon radii per particle cell [0.5]
             static const float JetBase = 12.0;
 
             // The disk seen from above (diskStreaks): its gas drawn out along its orbit into long arcs winding into a
             // trailing spiral, finely striated, with dark lanes between. tools/BlackHolePreview tunes these.
-            static const float StreakStretch = 30.0;    // arcs this many times longer along the orbit than across
+            #define StreakStretch (_KSPVE_BHAdvanced2.w) // arcs this many times longer along the orbit than across [30]
             static const float StreakRing = 2.0;        // noise circle size: how many arcs go round
             static const float StreakRadial = 1.6;      // bands across the disk, per horizon radius (times CloudScale)
-            static const float StreakWinding = 5.0;     // spiral winding per e-fold of radius
+            // Beyond this radius a disk's clumps, and the steps through a disk this big, grow with the radius
+            // (BlackHoleSettings.DetailRadius), so a disk of any size looks alike at every scale.
+            static const float DetailRadius = 20.0;
+            #define StreakWinding (_KSPVE_BHAdvanced2.z) // spiral winding per e-fold of radius [5]
             static const float StreakFine = 6.0;        // fine striations, this much finer than the bands
             static const float StreakFineWeight = 0.85;
             static const float StreakArcLo = 0.25, StreakArcHi = 0.6;
-            static const float StreakGap = 0.85;        // how dark the lanes between arcs are
+            #define StreakGap (_KSPVE_BHAdvanced3.x)     // how dark the lanes between arcs are [0.85]
             static const float StreakHeat = 0.8;        // the arcs run hotter (whiter)
             static const float StreakExposure = 0.35;   // face on the whole glowing column is in view: toned down so the arcs read
             static const float StreakSaturation = 2.8;  // softer colour from above: white-blue arcs rather than cyan
@@ -212,10 +256,27 @@ Shader "Hidden/KSPVE/Space/BlackHole"
 
             // Shape of the disk at x, without the hot clumps; the light march uses this alone.
             // pw: the point's warped position in the rotating frame, for the hot clumps; ps: its place in the streak pattern.
-            float DiskShapeStreaks(float3 x, out float r, out float3 pw, out float3 ps)
+            // The disk's cloud noise at scale level (2^-level of the inner disk's clump frequency), with its warped position.
+            void Clouds(float3 pd, float level, out float3 pw, out float warp, out float lumps, out float billows)
+            {
+                float3 pc = pd * (CloudScale * exp2(-level)) + float3(17.3, 5.1, 9.7) * level;
+                float3 w = float3(Noise3(pc * 0.5 + 11.3), Noise3(pc * 0.5 + 27.1), Noise3(pc * 0.5 + 41.7)) - 0.5;
+                pw = pc + w * 0.5;
+                warp = (Noise3(pc * 0.3 + 3.3) - 0.5) * 0.8;
+                lumps = Fbm(pw);
+                billows = 1.0 - abs(2.0 * Noise3(pw * 2.7 + 5.1) - 1.0);
+            }
+
+            // The radius the streak pattern runs on: the radius itself, then logarithmic beyond DetailRadius.
+            float StreakRadius(float r) { return r <= DetailRadius ? r : DetailRadius * (1.0 + log(r / DetailRadius)); }
+
+            // pw1, cloudBlend: the next scale's warped position and how much of it, beyond DetailRadius.
+            float DiskShapeStreaks(float3 x, out float r, out float3 pw, out float3 ps, out float3 pw1, out float cloudBlend)
             {
                 pw = 0.0;
                 ps = 0.0;
+                pw1 = 0.0;
+                cloudBlend = 0.0;
                 float3 pd = ToDiskFrame(x, r);
                 float height = pd.z;
                 float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y;
@@ -236,13 +297,25 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float warp = 0.0, lumps = 0.0, billows = 0.0;
                 if (cloud > 0.0)
                 {
-                    // True 3D position in the rotating frame, with light turbulent offsets.
-                    float3 pc = pd * CloudScale;
-                    float3 w = float3(Noise3(pc * 0.5 + 11.3), Noise3(pc * 0.5 + 27.1), Noise3(pc * 0.5 + 41.7)) - 0.5;
-                    pw = pc + w * 0.5;
-                    warp = (Noise3(pc * 0.3 + 3.3) - 0.5) * 0.8 * cloud;
-                    lumps = Fbm(pw) * cloud;
-                    billows = (1.0 - abs(2.0 * Noise3(pw * 2.7 + 5.1) - 1.0)) * cloud;
+                    // True 3D position in the rotating frame. Beyond DetailRadius the clumps grow with the radius: the noise
+                    // is taken at the two power-of-two scales around the wanted one and blended, so it stays seamless.
+                    float level = log2(max(1.0, r / DetailRadius));
+                    float k0 = floor(level);
+                    float blend = level - k0;
+                    float w0, l0, b0;
+                    Clouds(pd, k0, pw, w0, l0, b0);
+                    if (blend > 0.001)
+                    {
+                        float w1, l1, b1;
+                        Clouds(pd, k0 + 1.0, pw1, w1, l1, b1);
+                        w0 = lerp(w0, w1, blend);
+                        l0 = lerp(l0, l1, blend);
+                        b0 = lerp(b0, b1, blend);
+                        cloudBlend = blend;
+                    }
+                    warp = w0 * cloud;
+                    lumps = l0 * cloud;
+                    billows = b0 * cloud;
                 }
                 if (face > 0.0)
                 {
@@ -251,7 +324,8 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     // size sets how many arcs go round; the radius runs along the third axis, so neighbouring orbits differ.
                     float a = atan2(pd.y, pd.x) + _KSPVE_BHNormal.w * StreakWinding * log(r / inner);
                     float ring = StreakRing * rsqrt(1.0 + StreakStretch);
-                    ps = float3(ring * cos(a), ring * sin(a), (r * StreakRadial + 0.8 * height) * CloudScale);
+                    ps = float3(ring * cos(a), ring * sin(a),
+                        (StreakRadius(r) * StreakRadial + 0.8 * height * DetailRadius / max(r, DetailRadius)) * CloudScale);
                     lumps += Fbm(ps) * face;
                     billows += (1.0 - abs(2.0 * Noise3(ps * 2.7 + 5.1) - 1.0)) * face;
                 }
@@ -270,8 +344,9 @@ Shader "Hidden/KSPVE/Space/BlackHole"
 
             float DiskShape(float3 x, out float r, out float3 pw)
             {
-                float3 ps;
-                return DiskShapeStreaks(x, r, pw, ps);
+                float3 ps, pw1;
+                float cloudBlend;
+                return DiskShapeStreaks(x, r, pw, ps, pw1, cloudBlend);
             }
 
             // Sparks of white-hot matter and dark chunks of debris riding in the disk. One candidate per cell of a grid in
@@ -384,7 +459,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float boost = gamma * (1.0 - speed * cosT);
                 float beam = min(1.0 / (boost * boost * boost * gamma * gamma * gamma), 10.0);   // D^3 / gamma^3 (D = 1 / boost), capped
 
-                float3 jetColor = lerp(float3(0.3, 0.55, 1.0), 1.0, clamp(0.4 * density * beam / 8.0, 0.0, 0.35));
+                float3 jetColor = lerp(_KSPVE_BHJetColor.rgb, 1.0, clamp(0.4 * density * beam / 8.0, 0.0, 0.35));
                 color += transmittance * jetColor * (strength * 2.5 * density * beam * dt);
                 transmittance *= exp(-absorb * gas * dt / R);
             }
@@ -393,14 +468,21 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             {
                 float r;
                 float3 pw;
-                float3 ps;
-                float shape = DiskShapeStreaks(x, r, pw, ps);
+                float3 ps, pw1;
+                float cloudBlend;
+                float shape = DiskShapeStreaks(x, r, pw, ps, pw1, cloudBlend);
                 if (shape < 1e-3) return;
                 float face = _KSPVE_BHStreak.x;
                 // From above the streak pattern varies across the disk only, not up through it, so it stays smooth.
-                float3 flat = float3(ps.xy, r * StreakRadial * CloudScale);
+                float3 flat = float3(ps.xy, StreakRadius(r) * StreakRadial * CloudScale);
                 float streakHeat = face > 0.0 ? Fbm(flat * 1.3 + 9.1) : 0.0;
-                float heat = (face < 1.0 ? Fbm(pw * 1.3 + 9.1) * (1.0 - face) : 0.0) + streakHeat * face;
+                float cloudHeat = 0.0;
+                if (face < 1.0)
+                {
+                    cloudHeat = Fbm(pw * 1.3 + 9.1);
+                    if (cloudBlend > 0.0) cloudHeat = lerp(cloudHeat, Fbm(pw1 * 1.3 + 9.1), cloudBlend);
+                }
+                float heat = cloudHeat * (1.0 - face) + streakHeat * face;
                 float density = shape * (0.6 + 0.4 * heat); // hot clumps inside a continuous body: no holes
                 float lane = 1.0;
                 if (face > 0.0)
@@ -429,12 +511,19 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float phase = 0.25 + 0.75 * (1.0 - hgG * hgG) / pow(1.0 + hgG * hgG - 2.0 * hgG * cosScatter, 1.5);
                 float inner = _KSPVE_BHDisk.x;
                 float incident = LightStrength * pow(inner / max(r, inner), 2.0);
+                // outerGlow: beyond DetailRadius the disk is shown as if exposed for it, lit by the inner disk: warmed by
+                // its light (an irradiated disk's temperature falls only as r^-1/2), the inverse-square falloff made up, and
+                // the light it scatters in the inner disk's colour.
+                float outerLit = _KSPVE_BHStreak.y * smoothstep(DetailRadius, 3.0 * DetailRadius, r);
+                float exposure = 1.0 + outerLit * ((r / DetailRadius) * (r / DetailRadius) - 1.0);
+                incident *= exposure;
 
                 // Relativistic shift: gravitational redshift times Doppler from the disk's orbital motion.
                 float3 n = _KSPVE_BHNormal.xyz;
                 float peak = _KSPVE_BHLook.x;
                 float knots = smoothstep(0.45, 0.75, heat) * _KSPVE_BHDisk.w;
                 float temperature = DiskTemperature(r, inner, peak) * (0.9 + (0.3 + StreakHeat * face) * knots);
+                if (outerLit > 0.0) temperature = max(temperature, peak * 0.3 * sqrt(inner / r) * (0.9 + 0.3 * knots) * min(outerLit, 1.0));
                 float3 orbit = normalize(cross(n, x - dot(x, n) * n)) * _KSPVE_BHNormal.w;
                 float beta = min(sqrt(0.5 / max(r - 1.0, 0.05)), 0.95);
                 float gamma = rsqrt(1.0 - beta * beta);
@@ -448,10 +537,21 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 // crevices, plus light from the inner disk scattered off the bulges.
                 // From above the colour is softer: the bright streaks go white-blue rather than cyan.
                 float3 hot = SaturateBy(Blackbody(temperature * g), lerp(_KSPVE_BHExtra.x, StreakSaturation, face));
+                // The disk's parts by hand: colours shading from the inner to the outer edge (keeping each part's brightness),
+                // and brightness inside and out, over the log of the radius.
+                float span = saturate(log(r / inner) / max(log(_KSPVE_BHDisk.y / inner), 1e-3));
+                if (_KSPVE_BHTint.x > 0.0)
+                {
+                    float3 tint = lerp(_KSPVE_BHTintInner.rgb, _KSPVE_BHTintOuter.rgb, span);
+                    float lum = dot(hot, float3(0.2126, 0.7152, 0.0722));
+                    hot = lerp(hot, tint * (lum / max(dot(tint, float3(0.2126, 0.7152, 0.0722)), 1e-4)), _KSPVE_BHTint.x);
+                }
+                float partBrightness = lerp(_KSPVE_BHTint.y, _KSPVE_BHTint.z, span);
                 float shade = 0.3 + 0.7 * lightTransmittance;
-                float3 thermal = hot * (pow(temperature / peak, 3.0) * EmissionStrength * (0.6 + 1.4 * knots) * shade);
-                float3 scattered = hot * (incident * lightTransmittance * phase * 0.4);
-                color += transmittance * (thermal + scattered) * (_KSPVE_BHForm.y * beaming * density * lane * dt);
+                float3 thermal = hot * (pow(temperature / peak, 3.0) * EmissionStrength * (0.6 + 1.4 * knots) * shade * exposure);
+                float3 lightColor = outerLit > 0.0 ? lerp(hot, Saturate(Blackbody(peak * 0.8)), min(outerLit, 1.0)) : hot;
+                float3 scattered = lightColor * (incident * lightTransmittance * phase * 0.4);
+                color += transmittance * (thermal + scattered) * (_KSPVE_BHForm.y * beaming * density * lane * dt * partBrightness);
                 transmittance *= exp(-density * Absorb * dt);
 
                 AccumulateParticles(x, x + v * dt, traveled, saturate(shape / 5.0) * (1.0 - face * (1.0 - StreakExposure)), temperature, g, color, transmittance);
@@ -736,6 +836,13 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 bool captured = false;
                 float rMin = 1e9;
                 float3 glowColor = Saturate(Blackbody(_KSPVE_BHLook.x * 0.6));
+                if (_KSPVE_BHTint.x > 0.0)
+                {
+                    // Coloured by hand: the inner disk's colour, as bright as the physical glow.
+                    float3 tint = _KSPVE_BHTintInner.rgb;
+                    float lum = dot(glowColor, float3(0.2126, 0.7152, 0.0722));
+                    glowColor = lerp(glowColor, tint * (lum / max(dot(tint, float3(0.2126, 0.7152, 0.0722)), 1e-4)), _KSPVE_BHTint.x);
+                }
                 // A pulsar: no shadow, no bending, no disk; rays stop at its surface and the star body shows through.
                 bool pulsar = _KSPVE_BHOptions.w > 0.5;
                 bool tde = _KSPVE_Tde.x > 0.5;
@@ -752,9 +859,13 @@ Shader "Hidden/KSPVE/Space/BlackHole"
 
                     // Adaptive step: proportional to r, and finer near the disk plane so the disk is never skipped.
                     float nearPlane = abs(dot(x, _KSPVE_BHNormal.xyz));
-                    float dtCap = tde && r > _KSPVE_Tde.w ? 0.08 * r : 2.0;   // beyond the disk & jets the event may need long strides
+                    // A disk bigger than DetailRadius: its clumps, and so the steps, grow with the radius out there. Smaller
+                    // disks keep the fixed steps they were tuned with.
+                    float grain = _KSPVE_BHDisk.y > DetailRadius ? max(1.0, r / DetailRadius) : 1.0;
+                    float dtCap = tde && r > _KSPVE_Tde.w ? 0.08 * r : 2.0 * grain;   // beyond the disk & jets the event may need long strides
                     float dt = clamp(min(0.08 * r, 0.35 * max(nearPlane, 0.3 * _KSPVE_BHDisk.z * r)), 0.004, dtCap);
-                    if (nearPlane < 5.0 * _KSPVE_BHDisk.z * r && r < _KSPVE_BHDisk.y * 1.2) dt = min(dt, 0.2); // fine steps inside the disk layer
+                    // Fine steps inside the disk layer: about three per clump out where the clumps are big.
+                    if (nearPlane < 5.0 * _KSPVE_BHDisk.z * r && r < _KSPVE_BHDisk.y * 1.2) dt = min(dt, 0.2 * grain * min(grain, 3.0));
                     float alongJet = abs(dot(x, _KSPVE_BHJetAxis.xyz));
                     if (_KSPVE_BHJet.x > 0.0 && alongJet > 1.1 * (1.0 - _KSPVE_BHJet2.x) && alongJet < _KSPVE_BHJet.y)                    // and inside the jets
                     {
@@ -803,13 +914,525 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 if (!captured && !pulsar)
                 {
                     float d = (rMin - 1.5) / 0.045;
-                    color += float3(0.9, 0.95, 1.0) * (_KSPVE_BHExtra.z * (1.0 - StreakRingDim * _KSPVE_BHStreak.x) * 8.0 * exp(-d * d));
+                    color += _KSPVE_BHRingColor.rgb * (_KSPVE_BHExtra.z * (1.0 - StreakRingDim * _KSPVE_BHStreak.x) * 8.0 * exp(-d * d));
                 }
 
                 // KSP renders in gamma space, so write sRGB-encoded colour.
                 color = LinearToSrgb(1.0 - exp(-color * _KSPVE_BHLook.y));
                 float alpha = captured ? 1.0 : 1.0 - transmittance;
                 return float4(color, alpha);
+            }
+
+            // --- other kinds of object (pass 2) -----------------------------------------------------------------------
+            // tools/BlackHolePreview/Objects.cs is the line-for-line CPU copy of this part.
+            #define KIND_NEUTRON 1
+            #define KIND_PROTO 2
+            #define KIND_DEBRIS 3
+            #define KIND_BELT 4
+            #define KIND_NEBULA 5
+            #define KIND_COMET 6
+            #define KIND_GALAXY 7
+            static const float FieldShellStart = 1.6;                          // SpaceObjects
+            #define FieldShellRatio (_KSPVE_ObjField.z)
+            #define FieldShells (_KSPVE_ObjField.y)
+            static const float NebulaRadius = 10.0;                            // SpaceObjects.NebulaShaderRadius
+
+            int ObjKind() { return (int)(_KSPVE_ObjKind.x + 0.5); }
+
+            float Hash1(float n) { return frac(sin(n) * 43758.5453); }
+
+            // A cell's hash, evenly spread over [0,1) (Hash3's product form piles up near 0, which a probability test can't take).
+            float CellHash(float3 c, float salt) { return Hash1(dot(c, float3(127.1, 311.7, 74.7)) * 0.0137 + salt); }
+
+            // Henyey-Greenstein phase, scaled so isotropic scattering is 1.
+            float PhaseHG(float cosAngle, float g) { return (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * cosAngle, 1.5); }
+
+            // A star's colour at luminance 1.
+            float3 StarLight(float kelvin)
+            {
+                float3 c = Blackbody(kelvin);
+                return c / max(dot(c, float3(0.2126, 0.7152, 0.0722)), 1e-4);
+            }
+
+            // The gaps planets clear (DiskGaps: spread over the disk, or placed one by one); they cut a belt's rocks too.
+            float GapFactor(float r)
+            {
+                float gaps = 1.0;
+                int gapCount = (int)_KSPVE_ObjShape.y;
+                [loop] for (int k = 0; k < 16; k++)
+                {
+                    if (k >= gapCount) break;
+                    float4 gap = _KSPVE_ObjGaps[k];
+                    gaps *= 1.0 - gap.z * exp(-Sq((r - gap.x) / gap.y));
+                }
+                return gaps;
+            }
+
+            // Dust density of a protoplanetary or debris disk (or an asteroid belt's dust) at x. Protoplanetary: flared
+            // (thicker further out), its density falling outward, cut by gaps where planets clear their orbits. Debris: one
+            // narrow, thin ring.
+            float DustDisk(float3 x, out float r, out float3 pd)
+            {
+                pd = ToDiskFrame(x, r);
+                float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y;
+                // Its edges and gaps go by the distance from the star (orbits' sizes), its thickness by the angle above the
+                // plane (their inclinations): a thick belt is lens-shaped, not a cylinder.
+                float rs = length(pd);
+                float soft = _KSPVE_ObjDisk2.y;
+                if (rs < inner * max(1.0 - 0.4 * soft, 0.0) || rs > outer * (1.0 + 0.1 * soft)) return 0.0;
+                float h = _KSPVE_BHDisk.z * r * pow(r / outer, _KSPVE_ObjShape.x);
+                if (abs(pd.z) > 4.0 * h) return 0.0;
+                float radial;
+                if (ObjKind() == KIND_DEBRIS)
+                {
+                    float rc = 0.5 * (inner + outer), wr = 0.5 * (outer - inner);
+                    radial = exp(-2.0 * Sq((rs - rc) / (wr * soft)));
+                }
+                else
+                    radial = smoothstep(inner * (1.0 - 0.4 * soft), inner * (1.0 + 0.15 * soft), rs)
+                        * (1.0 - smoothstep(outer * (1.0 - 0.1 * soft), outer * (1.0 + 0.1 * soft), rs)) * pow(inner / rs, _KSPVE_ObjDisk2.x);
+                float gaps = GapFactor(rs);
+                float vertical = exp(-0.5 * Sq(pd.z / h));
+                float clumpy = _KSPVE_ObjDisk2.z;
+                float clumps = 1.0 - 0.5 * clumpy + clumpy * Fbm(pd * (8.0 * _KSPVE_ObjDisk2.w / outer) + 3.1);
+                if (_KSPVE_ObjSpiral.x > 0.0)
+                {
+                    // Spiral arms: density waves winding out from the inner disk.
+                    float arms = cos(_KSPVE_ObjSpiral.x * atan2(pd.y, pd.x) - _KSPVE_ObjSpiral.z * log(r / inner));
+                    clumps *= 1.0 + _KSPVE_ObjSpiral.y * arms;
+                }
+                return _KSPVE_ObjDust.x * radial * gaps * gaps * vertical * max(clumps, 0.0) / h;
+            }
+
+            // Starlight scattered by the dust (forward-scattering grains: brightest between the star and the eye), dimmed by
+            // the dust between it and the star, with the inner rim hot enough to glow.
+            void AccumulateDustDisk(float3 x, float3 vn, float dt, inout float3 color, inout float transmittance)
+            {
+                float r;
+                float3 pd;
+                float rho = DustDisk(x, r, pd);
+                float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y;
+                if (rho * outer < 4e-4) return;
+                float d = length(x);
+                float r1, r2;
+                float3 p1, p2;
+                float s1 = DustDisk(x * 0.9, r1, p1), s2 = DustDisk(x * 0.72, r2, p2);
+                float lightT = exp(-(s1 * 0.1 + s2 * 0.18) * d);
+                float illum = pow(outer / max(d, inner * 0.5), _KSPVE_ObjDust.y);
+                float phase = 0.25 + 0.75 * PhaseHG(dot(x / d, -vn), _KSPVE_ObjDisk3.x) * 0.5;
+                float3 dustColor = lerp(_KSPVE_ObjDustColor.rgb, _KSPVE_ObjOuterDust.rgb, saturate((r - inner) / max(outer - inner, 1e-6)));
+                float3 scattered = dustColor * StarLight(_KSPVE_ObjKind.z) * (illum * lightT * phase);
+                float3 rim = Blackbody(_KSPVE_ObjDisk3.z) * (_KSPVE_ObjDisk3.y * smoothstep(inner * 1.8, inner * 0.9, r));
+                color += transmittance * (scattered + rim) * (rho * dt);
+                transmittance *= exp(-rho * dt);
+            }
+
+            // The star's glow in the gas round it (a young star is still wrapped in dust).
+            void AccumulateStarGlow(float3 x, float dt, inout float3 color, float transmittance)
+            {
+                float size = _KSPVE_ObjDust.z * (ObjKind() == KIND_NEBULA ? NebulaRadius : _KSPVE_BHDisk.y);
+                if (size <= 0.0) return;
+                float d = length(x);
+                float glow = 0.05 * size / (d * d + 0.01 * size * size) * exp(-d / size);
+                color += transmittance * StarLight(_KSPVE_ObjKind.z) * (glow * dt);
+            }
+
+            // How likely a cell of rock space at pd (the disk's frame) holds a rock: a belt, or a debris ring.
+            float RockField(float3 pd)
+            {
+                float r = length(pd.xy), rs = length(pd);   // as DustDisk: edges by distance, thickness by angle
+                float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y;
+                float radial = ObjKind() == KIND_DEBRIS
+                    ? exp(-2.0 * Sq((rs - 0.5 * (inner + outer)) / (0.5 * (outer - inner))))
+                    : smoothstep(inner * 0.9, inner * 1.15, rs) * (1.0 - smoothstep(outer * 0.85, outer * 1.1, rs));
+                float h = max(_KSPVE_BHDisk.z * r * _KSPVE_ObjDisk3.w, 1e-6);
+                return _KSPVE_ObjRocks.x * radial * GapFactor(rs) * exp(-0.5 * Sq(pd.z / h));
+            }
+
+            // Rocks: one candidate per cell of a grid in the disk's frame, counted by the ray segment its closest approach
+            // falls in, lit on the side facing the star. Never smaller than the pixel footprint, keeping their light, so
+            // distant rocks become a fine glitter rather than flickering.
+            void AccumulateRocks(float3 x0, float3 x1, float traveled, inout float3 color, inout float transmittance)
+            {
+                if (_KSPVE_ObjRocks.x <= 0.0) return;
+                float unusedR;
+                float3 a = ToDiskFrame(x0, unusedR);
+                float3 ab = ToDiskFrame(x1, unusedR) - a;
+                float ab2 = dot(ab, ab);
+                float cell = _KSPVE_ObjDust.w;
+                if (ab2 < 1e-10 * cell * cell) return;
+                float3 vn = ab * rsqrt(ab2);
+                float3 baseCell = floor((a + ab * 0.5) / cell - 0.5);
+                float footprint = traveled * _KSPVE_BHOptions.y;
+                float3 light = StarLight(_KSPVE_ObjKind.z);
+                float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y;
+                [unroll] for (int k = 0; k < 8; k++)
+                {
+                    float3 c = baseCell + float3(k & 1, (k >> 1) & 1, (k >> 2) & 1);
+                    float3 jitter = float3(CellHash(c, 1.7), CellHash(c, 9.2), CellHash(c, 23.5));
+                    float3 p = (c + 0.2 + jitter * 0.6) * cell;
+                    // The hash holds only ~8 bits (frac of sin x 43758) and is exactly 0 one cell in 256: below that a
+                    // cell's chance is taken as none.
+                    float chance = RockField(p);
+                    if (chance < 1.0 / 256.0 || CellHash(c, 71.3) >= chance) continue;
+                    float s = dot(p - a, ab) / ab2;
+                    if (s < 0.0 || s >= 1.0) continue;
+                    float3 dv = a + ab * s - p;
+                    float dd = dot(dv, dv);
+                    float radius = _KSPVE_ObjRocks.y * cell * (0.08 + 0.35 * _KSPVE_ObjSpiral.w * jitter.x * jitter.x * jitter.x);
+                    // Up close no rock looks wider than rockMaxAngle: they are sized to the belt to be seen from afar.
+                    if (_KSPVE_ObjRocks.w > 0.0) radius = min(radius, _KSPVE_ObjRocks.w * (traveled + s * sqrt(ab2)));
+                    float sigma = max(radius, footprint);
+                    float cover = saturate(exp(-dd / (sigma * sigma)) * (radius * radius) / (sigma * sigma));
+                    if (cover < 1e-4) continue;
+                    // The rock's visible face, lit by the star at the centre.
+                    float3 nrm = normalize(dv - vn * sqrt(max(radius * radius - dd, 0.0)) + 1e-6);
+                    float lit = max(dot(nrm, -normalize(p)), 0.0);
+                    float illum = pow(outer / max(length(p), inner * 0.5), _KSPVE_ObjDust.y);
+                    float albedo = _KSPVE_ObjRocks.z * (0.6 + 0.8 * jitter.z);
+                    float3 rock = light * (albedo * (illum * lit * 1.4 + 0.02)) * _KSPVE_ObjRockColor.rgb * float3(1.0, 0.95 + 0.1 * jitter.y, 0.95 + 0.1 * jitter.y);
+                    color += transmittance * rock * cover;
+                    transmittance *= 1.0 - cover;
+                }
+            }
+
+            // A nebula NebulaRadius across: glowing gas in two colours, bright filaments, dark dust lanes, a ragged edge.
+            void Nebula(float3 x, out float gas, out float mix, out float filament, out float dust)
+            {
+                gas = 0.0; mix = 0.0; filament = 0.0; dust = 0.0;
+                if (length(x) > 1.3 * NebulaRadius) return;
+                float unusedR;
+                float3 pd = ToDiskFrame(x, unusedR);
+                // Stretched along the normal and warped twice, so it isn't a ball.
+                float3 xs = float3(pd.x * 0.75, pd.z * 0.75 * _KSPVE_ObjCloud2.x, pd.y);
+                float3 q = xs * (0.22 * _KSPVE_ObjCloud.y) + float3(0.0, _KSPVE_BHLook.w * 0.002, 0.0);
+                float3 w = float3(Fbm(q + 1.7), Fbm(q + 9.2), Fbm(q + 4.3)) - 0.5;
+                float3 p = q + w * (2.2 * _KSPVE_ObjCloud.z);
+                float3 w2 = float3(Noise3(p * 2.1 + 5.5), Noise3(p * 2.1 + 8.8), Noise3(p * 2.1 + 2.2)) - 0.5;
+                p += w2 * (0.45 * _KSPVE_ObjCloud.z);
+                float edge = (1.0 - smoothstep(2.0, 11.5, length(xs) * (0.3 + _KSPVE_ObjCloud2.y * Fbm(pd * 0.12 + 6.6))))
+                    * (1.0 - smoothstep(NebulaRadius, 1.3 * NebulaRadius, length(x)));
+                // A planetary nebula's shell: the gas piled into a hollow, ragged shell.
+                float shell = (length(xs) / NebulaRadius) * (0.85 + 0.3 * Fbm(p * 0.5 + 1.1));
+                edge *= 1.0 + _KSPVE_ObjExtra.x * (4.0 * exp(-Sq((shell - 0.55) / 0.06)) - 1.0);
+                if (edge <= 0.0) return;
+                float n = Fbm(p);
+                gas = edge * pow(max(n * 2.1 - _KSPVE_ObjCloud2.z, 0.0), 2.0) * _KSPVE_ObjDust.x;
+                mix = smoothstep(0.25, 0.75, Fbm(p * 0.7 + 7.7));
+                mix = lerp(mix, smoothstep(0.45, 0.62, shell), _KSPVE_ObjExtra.x);   // a shell: one gas inside, the other outside (O III, H-alpha)
+                // Filaments: ridges of two octaves, thin and bright where the gas is.
+                float ridge1 = 1.0 - abs(2.0 * Noise3(p * 2.6 + 2.2) - 1.0);
+                float ridge2 = 1.0 - abs(2.0 * Noise3(p * 6.1 + 4.4) - 1.0);
+                filament = edge * (pow(ridge1, 12.0) + 0.5 * pow(ridge2, 16.0)) * smoothstep(0.32, 0.6, n) * _KSPVE_ObjDust.x * _KSPVE_ObjCloud.w;
+                dust = edge * max(Fbm(p * 1.4 + 3.3) * 2.0 - 1.05, 0.0) * _KSPVE_ObjCloud.x;
+            }
+
+            // A comet at the centre, its star along _KSPVE_ObjSun and moving along _KSPVE_ObjVel: a glowing coma, a straight
+            // ion tail pointing directly away from the star, streaked and knotted, and a dust tail curving back along the
+            // orbit (the grains keep the comet's motion as the starlight pushes them out), sharp on its leading edge.
+            void AccumulateComet(float3 x, float dt, float fp, inout float3 color, inout float transmittance)
+            {
+                float act = _KSPVE_ObjComet.x;
+                if (act <= 0.0) return;
+                float r = length(x);
+                float3 away = -_KSPVE_ObjSun.xyz, vel = _KSPVE_ObjVel.xyz;
+                float time = _KSPVE_BHLook.w;
+                // Coma: a soft glow round the nucleus, greenish (C2), with a bright false nucleus.
+                float coma = exp(-r / _KSPVE_ObjComet.y) / (0.3 + r) * act;
+                color += transmittance * _KSPVE_ObjComaColor.rgb * (coma * 0.45 * _KSPVE_ObjComet3.x * dt);
+                float core = exp(-r * r / max(0.02, fp * fp));
+                color += transmittance * float3(1.0, 0.97, 0.9) * (core * 3.0 * _KSPVE_ObjComet3.w * act * dt / max(0.15, fp));
+
+                float s = dot(x, away);
+                if (s <= -0.5) return;
+                float sp = max(s, 0.0);
+                // Ion tail: straight away from the star, narrow, blue (CO+), streamers and knots drifting outward.
+                float3 off = x - away * sp;
+                float d = length(off);
+                float w = max((0.25 + 0.025 * sp) * _KSPVE_ObjComet2.z, fp);
+                float3 e1 = normalize(cross(away, abs(away.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0)));
+                float3 e2 = cross(away, e1);
+                float around = atan2(dot(off, e2), dot(off, e1));
+                float streak = _KSPVE_ObjComet2.w;
+                float streamers = 1.0 - 0.7 * streak + 1.4 * streak * Sq(Noise3(float3(cos(around) * 3.0, sin(around) * 3.0, sp * 0.05 - time * 0.3)));
+                float knots = 1.0 - 0.4 * streak + 0.8 * streak * Noise3(float3(0.3, 1.7, sp * 0.12 - time * 0.5));
+                float ion = exp(-Sq(d / w)) * exp(-sp / _KSPVE_ObjComet.z) * smoothstep(-0.5, 1.0, s) * streamers * knots / w;
+                color += transmittance * _KSPVE_ObjColorA.rgb * (ion * 0.5 * _KSPVE_ObjComet3.y * act * dt);
+
+                // Dust tail: the grains spread back along the orbit (older ones lag more): a sharp leading edge, a soft trailing one.
+                float dustLength = _KSPVE_ObjComet.w, widthAmount = _KSPVE_ObjComet2.y;
+                float3 curve = away * sp - vel * (_KSPVE_ObjComet2.x * sp * sp / dustLength + 0.1 * sp);
+                float3 offD = x - curve;
+                float lag = dot(offD, -vel);
+                float wd = max(0.25 + 0.04 * sp * widthAmount, fp);
+                float wl = lag > 0.0 ? wd * (1.0 + 2.5 * widthAmount * sp / (sp + 20.0)) : wd;
+                float side = length(offD + lag * vel);
+                float d2 = Sq(lag / wl) + Sq(side / (wd * 1.4));
+                float striae = 1.0 - 0.3 * _KSPVE_ObjExtra.y + 0.6 * _KSPVE_ObjExtra.y * Noise3(float3(lag * 0.7 / (1.0 + 0.05 * sp), sp * 0.02, 4.4));
+                float dustTail = exp(-d2) * exp(-sp / dustLength) * smoothstep(-0.5, 1.5, s) * striae / sqrt(wd * wl);
+                color += transmittance * _KSPVE_ObjColorB.rgb * (dustTail * 0.35 * _KSPVE_ObjComet3.z * act * dt);
+            }
+
+            // A galaxy NebulaRadius across, in the disk's frame: a bulge of old stars (stretched into a bar), a thin disk of stars
+            // wound into logarithmic spiral arms, bright with young blue stars and pink star-forming knots, dark dust lanes
+            // along the arms' inner edges, mottled with star clouds. No arms and a big bulge: an elliptical; warp: irregular.
+            void Galaxy(float3 x, out float3 emit, out float absorb)
+            {
+                emit = 0.0;
+                absorb = 0.0;
+                float R = NebulaRadius;
+                if (length(x) > 1.25 * R) return;
+                float unusedR;
+                float3 pd = ToDiskFrame(x, unusedR);
+                float irregular = _KSPVE_ObjCloud.z;
+                if (irregular > 0.0)
+                    pd.xy += (float2(Fbm(pd * 0.15 + 1.7), Fbm(pd * 0.15 + 9.2)) - 0.5) * (4.0 * irregular);
+                float r = length(pd.xy), z = pd.z;
+                float hz = max(_KSPVE_BHDisk.z, 1e-3) * R;
+                // Bulge (Sersic n = 2), stretched along x into the bar.
+                float rb = max(_KSPVE_ObjGalaxy.x, 1e-3) * R;
+                float qb = length(float3(pd.x / (1.0 + _KSPVE_ObjGalaxy.z * R / rb), pd.y, pd.z * 1.6)) / rb;
+                float bulge = 0.25 * exp(-3.67 * (sqrt(qb) - 1.0)) / rb * (1.0 - smoothstep(0.85 * R, 1.2 * R, length(x)));
+                // Disk: exponential in radius and height, fading at the edge.
+                float disk = exp(-r / (0.3 * R)) * exp(-abs(z) / hz) * (1.0 - smoothstep(0.85 * R, 1.2 * R, r)) / hz;
+                // Spiral arms, from the bar's ends.
+                float arms = _KSPVE_ObjSpiral.x;
+                float theta = atan2(pd.y, pd.x);
+                float lr = log(max(r, 0.02 * R) / R);
+                float armMix = 0.0, lane = 0.0;
+                if (arms > 0.0)
+                {
+                    float phase = arms * (theta - _KSPVE_ObjSpiral.z * lr) + 1.5 * (Fbm(pd * 0.5 + 4.4) - 0.5);
+                    float wave = 0.5 + 0.5 * cos(phase);
+                    float wave2 = wave * wave;
+                    armMix = _KSPVE_ObjSpiral.y * wave2 * wave2 * wave * smoothstep(0.03 * R, 0.25 * R, r);
+                    float dustWave = 0.5 + 0.5 * cos(phase + 0.7);   // trailing just inside each arm
+                    lane = dustWave * dustWave * dustWave * dustWave;
+                }
+                float clumpy = _KSPVE_ObjDisk2.z;
+                float mottle = max(1.0 - 0.5 * clumpy + clumpy * Fbm(pd * 1.8 + 2.2), 0.0);
+                // Star-forming knots: along the arms, or scattered through an irregular galaxy.
+                float knots = smoothstep(0.6, 0.76, Fbm(pd * 3.0 + 6.1)) * (arms > 0.0 ? armMix : 0.5 * irregular) * _KSPVE_ObjGalaxy.w;
+                // Between the arms only old stars; in them young blue ones; the dust lanes dim what is in them.
+                float interArm = 1.0 - 0.75 * _KSPVE_ObjSpiral.y * (arms > 0.0 ? 1.0 : 0.0);
+                float3 diskLight = _KSPVE_BHTintOuter.rgb * interArm + _KSPVE_ObjColorA.rgb * (3.0 * armMix);
+                float dimmed = 1.0 - min(0.7 * lane * _KSPVE_ObjCloud.x, 0.9);
+                emit = 0.5 * (_KSPVE_BHTintInner.rgb * (bulge * _KSPVE_ObjGalaxy.y) + disk * mottle * dimmed * (diskLight + _KSPVE_ObjColorB.rgb * (8.0 * knots)));
+                // Dust: in a thinner layer, in lanes along the arms (or smooth with none).
+                float dustLayer = exp(-abs(z) / (0.5 * hz)) * exp(-r / (0.4 * R)) * (1.0 - smoothstep(0.8 * R, 1.1 * R, r));
+                absorb = _KSPVE_ObjCloud.x * dustLayer * (arms > 0.0 ? 0.25 + lane : 0.6) * (0.5 + Fbm(pd * 2.5 + 7.7)) * 8.0 / hz;
+            }
+
+            // A frame round the neutron star's magnetic axis.
+            void MagneticAxes(out float3 m, out float3 e1, out float3 e2)
+            {
+                m = _KSPVE_BHJetAxis.xyz;
+                e1 = normalize(cross(m, abs(m.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0)));
+                e2 = cross(m, e1);
+            }
+
+            // Dipole field lines: glowing loops r = L sin^2(theta) about the magnetic axis, on a few shells and meridians.
+            void AccumulateFieldLines(float3 x, float dt, float fp, inout float3 color, float transmittance)
+            {
+                float strength = _KSPVE_ObjNeutron.x;
+                float starR = _KSPVE_ObjKind.y;
+                float r = length(x);
+                if (strength <= 0.0 || starR <= 0.0 || r < starR) return;
+                float3 m, e1, e2;
+                MagneticAxes(m, e1, e2);
+                float c = dot(x, m) / r;
+                float s2 = max(1.0 - c * c, 1e-4);
+                float L = r / s2;
+                float l0 = starR * FieldShellStart;
+                float k = round(log(L / l0) / log(FieldShellRatio));
+                if (k < 0.0 || k > FieldShells - 1.0) return;
+                float lk = l0 * pow(FieldShellRatio, k);
+                float spacing = 2.0 * UNITY_PI / max(_KSPVE_ObjField.x, 1.0);
+                float phi = atan2(dot(x, e2), dot(x, e1)) + k * 0.4;
+                float dphi = phi - round(phi / spacing) * spacing;
+                float dr = r - lk * s2;
+                float dperp = r * sqrt(s2) * dphi;
+                float w = max(_KSPVE_ObjField.w * r, fp);
+                float glow = exp(-(dr * dr + dperp * dperp) / (w * w)) * strength / (1.0 + 0.3 * k) / w;
+                color += transmittance * _KSPVE_ObjColorA.rgb * (glow * 0.06 * dt);
+            }
+
+            // Accretion columns: gas lifted off the disk's inner edge along the field lines and onto the magnetic poles.
+            void AccumulateColumns(float3 x, float dt, inout float3 color, inout float transmittance)
+            {
+                float strength = _KSPVE_ObjNeutron.y;
+                float r = length(x);
+                float lm = _KSPVE_BHDisk.x;
+                if (strength <= 0.0 || r < _KSPVE_ObjKind.y || r > lm * 1.1) return;
+                float3 m, e1, e2;
+                MagneticAxes(m, e1, e2);
+                float c = dot(x, m) / r;
+                float s2 = max(1.0 - c * c, 1e-4);
+                float dl = (r / s2 - lm) / (_KSPVE_ObjNeutron2.x * lm);
+                float curtain = exp(-dl * dl);
+                if (curtain < 1e-3) return;
+                float phi = atan2(dot(x, e2), dot(x, e1));
+                float streams = 0.25 + 1.5 * Sq(Noise3(float3(cos(phi) * 2.5, sin(phi) * 2.5, r * 0.3 - _KSPVE_BHLook.w * 2.0)));
+                float heat = pow(lm / r, 1.5);
+                float gas = curtain * streams * strength;
+                color += transmittance * Blackbody(25000.0 * min(heat, 3.0)) * (gas * heat * 0.6 * dt);
+                transmittance *= exp(-gas * 0.15 * dt);
+            }
+
+            // The pulsar's beams: two narrow cones of light along the magnetic axis.
+            void AccumulateBeams(float3 x, float dt, inout float3 color, float transmittance)
+            {
+                float strength = _KSPVE_ObjNeutron.z;
+                if (strength <= 0.0) return;
+                float3 m = _KSPVE_BHJetAxis.xyz;
+                float z = dot(x, m), az = abs(z);
+                if (az < _KSPVE_ObjKind.y) return;
+                float perp = length(x - z * m);
+                float rad = 0.25 + _KSPVE_ObjNeutron2.y * az;
+                float beam = exp(-Sq(perp / rad)) * exp(-az / _KSPVE_ObjNeutron.w) / rad;
+                color += transmittance * lerp(_KSPVE_BHJetColor.rgb, 1.0, 0.55) * (beam * strength * 0.8 * dt);
+            }
+
+            float4 fragObject(v2f i) : SV_Target
+            {
+                float2 ndc = i.ndc;
+                float2 uv = ndc * 0.5 + 0.5;
+                float3 forward = _KSPVE_BHForward.xyz;
+                float3 v = normalize(forward + _KSPVE_BHRight.xyz * ndc.x * _KSPVE_BHRay.x + _KSPVE_BHUp.xyz * ndc.y * _KSPVE_BHRay.y);
+
+                float unit = _KSPVE_BHCenter.w;
+                float3 x = -_KSPVE_BHCenter.xyz / unit;   // camera position relative to the object, its units
+                float bound = _KSPVE_BHRay.w;
+                float b = dot(x, v);
+                float c = dot(x, x) - bound * bound;
+                float disc = b * b - c;
+                if (disc < 0.0) return 0;
+                float sq = sqrt(disc);
+                float tEnter = max(0.0, -b - sq);
+                if (-b + sq < 0.0) return 0;
+
+                // Anything nearer hides it: bodies as exact spheres (its own star among them), and the scaled scene's depth.
+                float sceneDistance = 1e30;
+                if (_KSPVE_BHOptions.x > 0.5)
+                    sceneDistance = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv)) / max(dot(v, forward), 1e-4) / unit;
+                [unroll] for (int o = 0; o < BH_OCCLUDERS; o++)
+                {
+                    float4 body = _KSPVE_BHOccluders[o];
+                    if (body.w <= 0.0) continue;
+                    float bo = dot(body.xyz, v);
+                    float co = dot(body.xyz, body.xyz) - body.w * body.w;
+                    float disco = bo * bo - co;
+                    if (co < 0.0) sceneDistance = 0.0;
+                    else if (bo > 0.0 && disco > 0.0) sceneDistance = min(sceneDistance, bo - sqrt(disco));
+                }
+                if (sceneDistance < tEnter) return 0;
+
+                x += v * tEnter;
+                float traveled = tEnter;
+                float3 hv = cross(x, v);
+                float h2 = dot(hv, hv);
+                int kind = ObjKind();
+                bool neutron = kind == KIND_NEUTRON;
+                float bend = neutron ? 1.0 : 0.0;   // only a neutron star is compact enough to bend light visibly
+                float starR = _KSPVE_ObjKind.y;
+                float inner = _KSPVE_BHDisk.x, outer = _KSPVE_BHDisk.y, thick = _KSPVE_BHDisk.z;
+                float3 color = 0;
+                float transmittance = 1.0;
+                bool solid = false;
+                int maxSteps = (int)_KSPVE_BHRay.z;
+                float jitter = 0.2 + 0.8 * frac(sin(dot(i.pos.xy, float2(12.9898, 78.233))) * 43758.5453);
+                [loop] for (int k = 0; k < maxSteps; k++)
+                {
+                    float r = length(x);
+                    if (r > bound * 1.001 && dot(x, v) > 0.0) break;
+                    if (traveled > sceneDistance) break;
+                    if (r < starR)
+                    {
+                        if (neutron)
+                        {
+                            // The neutron star's surface, seen through its own lensing: hot, brightest at the magnetic poles.
+                            float3 nrm = x / r, vn0 = normalize(v);
+                            float pole = exp(-(1.0 - abs(dot(nrm, _KSPVE_BHJetAxis.xyz))) * 30.0);
+                            float limb = 0.55 + 0.45 * abs(dot(nrm, vn0));
+                            color += transmittance * (SaturateBy(Blackbody(_KSPVE_ObjKind.w), 1.3) * limb + Blackbody(_KSPVE_ObjKind.w * 3.0) * (pole * _KSPVE_ObjNeutron2.z));
+                            solid = true;
+                        }
+                        break;   // another star: the game draws its surface
+                    }
+                    float nearPlane = abs(dot(x, _KSPVE_BHNormal.xyz));
+                    float dt = min(0.08 * r, neutron ? 2.0 : outer / 20.0);
+                    float3 vn = normalize(v);
+                    float fp = traveled * _KSPVE_BHOptions.y;
+                    if (neutron)
+                    {
+                        if (nearPlane < 5.0 * thick * r && r < outer * 1.2) dt = min(dt, 0.2);
+                        dt = min(dt, max(0.05 * r, 0.05));
+                    }
+                    else if (kind == KIND_NEBULA)
+                        dt = r < 1.2 * NebulaRadius ? 0.02 * NebulaRadius : max(0.025 * NebulaRadius, r - 1.15 * NebulaRadius);
+                    else if (kind == KIND_COMET)
+                        dt = min(max(0.15 * r, 0.03), max(_KSPVE_ObjComet.z, _KSPVE_ObjComet.w) / 30.0);
+                    else if (kind == KIND_GALAXY)
+                    {
+                        // Fine steps through the thin disk and the bulge, long ones above and below.
+                        float hz = max(_KSPVE_BHDisk.z, 1e-3) * NebulaRadius;
+                        dt = nearPlane > 4.0 * hz ? clamp(nearPlane - 3.0 * hz, 0.3 * hz, 0.12 * NebulaRadius) : max(0.3 * hz, 0.004 * NebulaRadius);
+                        dt = min(dt, max(0.15 * _KSPVE_ObjGalaxy.x * NebulaRadius, 0.25 * max(r - _KSPVE_ObjGalaxy.x * NebulaRadius, 0.0)));
+                    }
+                    else if (nearPlane < 6.0 * thick * r && r < outer * 1.4 && r > inner * 0.5)
+                        dt = min(dt, max(0.02 * r, _KSPVE_ObjDust.w * 0.7));   // dusty disks: fine steps through the layer
+                    if (!neutron && _KSPVE_ObjNeutron.x > 0.0 && r < starR * FieldShellStart * pow(FieldShellRatio, FieldShells - 1.0) * 1.1)
+                        dt = min(dt, max(0.05 * r, 0.05 * starR));   // and through the field lines
+                    if (k == 0) dt *= jitter;
+                    dt = min(dt, max(sceneDistance - traveled, 1e-5));
+
+                    if (neutron)
+                    {
+                        AccumulateDisk(x, v, dt, traveled, color, transmittance);
+                        AccumulateColumns(x, dt, color, transmittance);
+                        AccumulateFieldLines(x, dt, fp, color, transmittance);
+                        AccumulateBeams(x, dt, color, transmittance);
+                    }
+                    else if (kind == KIND_NEBULA)
+                    {
+                        float gas, mix, filament, dust;
+                        Nebula(x, gas, mix, filament, dust);
+                        float3 glowGas = lerp(_KSPVE_ObjColorA.rgb, _KSPVE_ObjColorB.rgb, mix) * gas + _KSPVE_ObjColorA.rgb * (filament * 0.8);
+                        color += transmittance * glowGas * dt;
+                        transmittance *= exp(-(gas * 0.12 + dust * 1.6) * dt);
+                        AccumulateStarGlow(x, dt, color, transmittance);   // a star inside, lighting it
+                    }
+                    else if (kind == KIND_COMET)
+                        AccumulateComet(x, dt, fp, color, transmittance);
+                    else if (kind == KIND_GALAXY)
+                    {
+                        float3 emit;
+                        float absorb;
+                        Galaxy(x, emit, absorb);
+                        color += transmittance * emit * dt;
+                        transmittance *= exp(-absorb * dt);
+                    }
+                    else
+                    {
+                        AccumulateDustDisk(x, vn, dt, color, transmittance);
+                        if (kind == KIND_PROTO) AccumulateStarGlow(x, dt, color, transmittance);
+                        else AccumulateRocks(x, x + v * dt, traveled, color, transmittance);
+                    }
+                    if (!neutron) AccumulateFieldLines(x, dt, fp, color, transmittance);   // any star may have them
+                    if (transmittance < 0.01) break;
+
+                    // Midpoint (RK2) step of x'' = -1.5 h^2 x / r^5 (straight unless it bends).
+                    float3 a1 = -1.5 * bend * h2 * x / pow(r, 5.0);
+                    float3 xm = x + v * (0.5 * dt);
+                    float3 vm = v + a1 * (0.5 * dt);
+                    float rm = max(length(xm), 1e-3);
+                    float3 am = -1.5 * bend * h2 * xm / pow(rm, 5.0);
+                    x += vm * dt;
+                    v += am * dt;
+                    traveled += dt * length(vm);
+                }
+                color = LinearToSrgb(1.0 - exp(-color * _KSPVE_BHLook.y));
+                return float4(color, solid ? 1.0 : 1.0 - transmittance);
             }
 
             // Upscales the reduced-resolution march. The buffer was written with the same clip-space y as the camera
@@ -843,6 +1466,16 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             #pragma only_renderers d3d11
             #pragma vertex vert
             #pragma fragment fragComposite
+            ENDCG
+        }
+
+        Pass // 2: ray-march another kind of object (premultiplied)
+        {
+            CGPROGRAM
+            #pragma target 5.0
+            #pragma only_renderers d3d11
+            #pragma vertex vert
+            #pragma fragment fragObject
             ENDCG
         }
     }
