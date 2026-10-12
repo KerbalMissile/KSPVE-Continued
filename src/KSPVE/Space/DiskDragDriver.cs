@@ -43,7 +43,7 @@ internal static class DiskDragDriver
             for (int i = 0; i < definitions.Count; i++)
             {
                 BlackHoleDefinition hole = definitions[i];
-                if (!hole.DiskDrag) continue;
+                if (!hole.DiskDrag || !hole.Enabled || !hole.IsBlackHole) continue;   // only a black hole's disk drags
                 CelestialBody body = hole.Body;
                 if (body == null) continue;
 

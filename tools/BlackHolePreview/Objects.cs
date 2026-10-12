@@ -426,10 +426,16 @@ internal static partial class Program
         Vector3 color = Vector3.Zero;
         float transmittance = 1f;
         bool solid = false;
+        // Round a black hole, only the gas in front of its disk and jets may dim them (OBJ_HOLEREACH, these units): once the
+        // ray reaches that region, the share of the hole's light let through is kept.
+        float holeReach = EnvFloat("OBJ_HOLEREACH", 0f);
+        bool reachedHole = false;
+        float frontTransmittance = 1f;
         for (int k = 0; k < MaxSteps; k++)
         {
             float r = x.Length();
             if (r > bound * 1.001f && Vector3.Dot(x, v) > 0) break;
+            if (!reachedHole && r < holeReach) { reachedHole = true; frontTransmittance = transmittance; }
             if (r < ObjStarR)
             {
                 if (neutron)
@@ -508,17 +514,26 @@ internal static partial class Program
             if (!neutron) AccumulateFieldLines(x, dt, fp, ref color, transmittance);   // any star may have them
             if (transmittance < 0.01f) break;
 
-            Vector3 a1 = -1.5f * bend * h2 * x / MathF.Pow(r, 5);
-            Vector3 xm = x + v * (0.5f * dt);
-            Vector3 vm = v + a1 * (0.5f * dt);
-            float rm = MathF.Max(xm.Length(), 1e-3f);
-            Vector3 am = -1.5f * bend * h2 * xm / MathF.Pow(rm, 5);
-            x += vm * dt;
-            v += am * dt;
-            traveled += dt * vm.Length();
+            // Midpoint (RK2) step of x'' = -1.5 h^2 x / r^5 (straight, and no 1/r^5 at all, unless it bends).
+            if (bend > 0f)
+            {
+                Vector3 a1 = -1.5f * bend * h2 * x / MathF.Pow(MathF.Max(r, 1e-6f), 5);
+                Vector3 xm = x + v * (0.5f * dt);
+                Vector3 vm = v + a1 * (0.5f * dt);
+                float rm = MathF.Max(xm.Length(), 1e-3f);
+                Vector3 am = -1.5f * bend * h2 * xm / MathF.Pow(rm, 5);
+                x += vm * dt;
+                v += am * dt;
+                traveled += dt * vm.Length();
+            }
+            else
+            {
+                x += v * dt;
+                traveled += dt;
+            }
         }
         Vector3 outc = Tonemap(color * ObjBright);
-        return new Vector4(LinearToSrgb(outc.X), LinearToSrgb(outc.Y), LinearToSrgb(outc.Z), solid ? 1f : 1f - transmittance);
+        return new Vector4(LinearToSrgb(outc.X), LinearToSrgb(outc.Y), LinearToSrgb(outc.Z), solid ? 1f : 1f - (reachedHole ? frontTransmittance : transmittance));
     }
 
     // ---------------------------------------------------------------------------------------------- settings
@@ -701,6 +716,7 @@ internal static partial class Program
         PixelAngle = 2f * tanY / h;
         bool sky = Environment.GetEnvironmentVariable("OBJ_SKY") == "1";
         var rgb = new byte[w * h * 3];
+        var alpha = new byte[w * h * 3];   // OBJ_ALPHA=path: also the coverage, for layering over another render
         Parallel.For(0, h, py =>
         {
             for (int px = 0; px < w; px++)
@@ -709,6 +725,8 @@ internal static partial class Program
                 Vector3 dir = Vector3.Normalize(forward + right * (u * 2 - 1) * tanX + up * (vv * 2 - 1) * tanY);
                 Jitter = 0.2f + 0.8f * Frac(MathF.Sin(px * 12.9898f + py * 78.233f) * 43758.5453f);
                 Vector4 c = MarchObject(camPos, dir);
+                int ai = (py * w + px) * 3;
+                alpha[ai] = alpha[ai + 1] = alpha[ai + 2] = ToByte(c.W);
                 if (sky)
                 {
                     // A starfield behind, as the game's skybox would be (premultiplied over it).
@@ -720,6 +738,8 @@ internal static partial class Program
             }
         });
         WritePng(path, w, h, rgb);
+        string alphaPath = Environment.GetEnvironmentVariable("OBJ_ALPHA");
+        if (!string.IsNullOrEmpty(alphaPath)) WritePng(alphaPath, w, h, alpha);
         Console.WriteLine($"wrote {path}: {label} (bound {Bound:0.###} units)");
         return 0;
     }

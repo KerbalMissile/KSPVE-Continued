@@ -1381,12 +1381,18 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float3 color = 0;
                 float transmittance = 1.0;
                 bool solid = false;
+                // Round a black hole, only the gas in front of its disk and jets may dim them: once the ray reaches that
+                // region, the share of the hole's light let through is kept (gas beyond it still glows, but hides nothing).
+                float holeReach = _KSPVE_ObjExtra.w;
+                bool reachedHole = false;
+                float frontTransmittance = 1.0;
                 int maxSteps = (int)_KSPVE_BHRay.z;
                 float jitter = 0.2 + 0.8 * frac(sin(dot(i.pos.xy, float2(12.9898, 78.233))) * 43758.5453);
                 [loop] for (int k = 0; k < maxSteps; k++)
                 {
                     float r = length(x);
                     if (r > bound * 1.001 && dot(x, v) > 0.0) break;
+                    if (!reachedHole && r < holeReach) { reachedHole = true; frontTransmittance = transmittance; }
                     if (traveled > sceneDistance) break;
                     if (r < starR)
                     {
@@ -1464,18 +1470,26 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     if (!neutron) AccumulateFieldLines(x, dt, fp, color, transmittance);   // any star may have them
                     if (transmittance < 0.01) break;
 
-                    // Midpoint (RK2) step of x'' = -1.5 h^2 x / r^5 (straight unless it bends).
-                    float3 a1 = -1.5 * bend * h2 * x / pow(r, 5.0);
-                    float3 xm = x + v * (0.5 * dt);
-                    float3 vm = v + a1 * (0.5 * dt);
-                    float rm = max(length(xm), 1e-3);
-                    float3 am = -1.5 * bend * h2 * xm / pow(rm, 5.0);
-                    x += vm * dt;
-                    v += am * dt;
-                    traveled += dt * length(vm);
+                    // Midpoint (RK2) step of x'' = -1.5 h^2 x / r^5 (straight, and no 1/r^5 at all, unless it bends).
+                    if (bend > 0.0)
+                    {
+                        float3 a1 = -1.5 * bend * h2 * x / pow(max(r, 1e-6), 5.0);
+                        float3 xm = x + v * (0.5 * dt);
+                        float3 vm = v + a1 * (0.5 * dt);
+                        float rm = max(length(xm), 1e-3);
+                        float3 am = -1.5 * bend * h2 * xm / pow(rm, 5.0);
+                        x += vm * dt;
+                        v += am * dt;
+                        traveled += dt * length(vm);
+                    }
+                    else
+                    {
+                        x += v * dt;
+                        traveled += dt;
+                    }
                 }
                 color = LinearToSrgb(1.0 - exp(-color * _KSPVE_BHLook.y));
-                return float4(color, solid ? 1.0 : 1.0 - transmittance);
+                return float4(color, solid ? 1.0 : 1.0 - (reachedHole ? frontTransmittance : transmittance));
             }
 
             // Upscales the reduced-resolution march. The buffer was written with the same clip-space y as the camera

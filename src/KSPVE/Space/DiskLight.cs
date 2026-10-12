@@ -71,7 +71,7 @@ internal static class DiskLight
     {
         if (body == null) return null;
         foreach (BlackHoleDefinition hole in BlackHoles.Definitions)
-            if (hole.Body == body) return hole;
+            if (hole.Enabled && hole.IsBlackHole && hole.Body == body) return hole;   // not a belt or nebula on the same body
         return null;
     }
 

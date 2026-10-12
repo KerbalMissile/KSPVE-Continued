@@ -556,6 +556,13 @@ internal sealed class BlackHoleDefinition
 internal static class BlackHoles
 {
     /// <summary>
+    /// A star: KSP's flag, or (should a planet pack leave it unset) a scaled body drawn with the star shader, as the Sun's
+    /// and Kopernicus' stars are.
+    /// </summary>
+    public static bool IsStar(CelestialBody b) =>
+        b != null && (b.isStar || (b.scaledBody != null && b.scaledBody.GetComponent<SunShaderController>() != null));
+
+    /// <summary>
     /// The star lighting a comet: its lightSource body, or the nearest star it orbits (up the chain of parents), or the
     /// root of the system.
     /// </summary>
@@ -564,13 +571,13 @@ internal static class BlackHoles
         List<CelestialBody> bodies = FlightGlobals.Bodies;
         if (!string.IsNullOrEmpty(hole.LightSource))
         {
-            CelestialBody named = bodies.Find(b => b != null && b.bodyName == hole.LightSource);
-            if (named != null) return named;
+            for (int i = 0; i < bodies.Count; i++)
+                if (bodies[i] != null && bodies[i].bodyName == hole.LightSource) return bodies[i];
         }
         CelestialBody parent = body.referenceBody;
         for (int guard = 0; parent != null && parent != body && guard < 64; guard++)
         {
-            if (parent.isStar) return parent;
+            if (IsStar(parent)) return parent;
             if (parent.referenceBody == parent) return parent;   // the root
             parent = parent.referenceBody;
         }
@@ -722,8 +729,14 @@ internal static class BlackHoles
     public static void PlanProcedural()
     {
         Definitions.RemoveAll(d => d.Procedural);
+        if (FlightGlobals.fetch == null || !ProceduralRules.Get(ProceduralObjects.Enabled))
+        {
+            _proceduralPlanned = true;
+            return;
+        }
+        // The bodies' orbits need the planetarium: plan in a game scene (it is tried again until then).
+        if (!HighLogic.LoadedSceneIsGame || Planetarium.fetch == null) return;
         _proceduralPlanned = true;
-        if (FlightGlobals.fetch == null || !ProceduralRules.Get(ProceduralObjects.Enabled)) return;
         var bodies = new List<SystemBody>();
         foreach (CelestialBody b in FlightGlobals.Bodies)
         {
@@ -733,7 +746,7 @@ internal static class BlackHoles
             {
                 Name = b.bodyName,
                 Parent = orbits ? b.referenceBody.bodyName : string.Empty,
-                IsStar = b.isStar,
+                IsStar = IsStar(b),
                 Radius = b.Radius,
                 SemiMajorAxis = orbits ? b.orbit.semiMajorAxis : 0.0,
                 Eccentricity = orbits ? b.orbit.eccentricity : 0.0,

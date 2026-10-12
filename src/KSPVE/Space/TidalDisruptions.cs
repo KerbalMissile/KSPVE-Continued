@@ -224,7 +224,7 @@ internal static class TidalDisruptions
     {
         foreach (BlackHoleDefinition hole in BlackHoles.Definitions)
         {
-            if (hole.Pulsar || hole.Body == null) continue;
+            if (hole.Pulsar || !hole.IsBlackHole || !hole.Enabled || hole.Body == null) continue;
             if (string.IsNullOrEmpty(name) || hole.BodyName == name || hole.Body.bodyName == name) return hole;
         }
         return null;

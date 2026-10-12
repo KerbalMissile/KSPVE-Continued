@@ -564,11 +564,12 @@ internal sealed class SettingsWindow : MonoBehaviour
             string unit = body != null ? $" = {FormatLength(h.HorizonMeters(body))}" : string.Empty;
             h.HorizonRadiusMeters = Slider($"    Length unit (m; 0 = automatic){unit}", h.HorizonRadiusMeters, 0, 1e11, "0");
         }
-        Vector3d n = h.Normal;
+        // The normal's direction (configs may give it any length, e.g. 50, -125, 1); only a change of one sets it.
+        Vector3d n = h.Normal.sqrMagnitude > 1e-24 ? h.Normal.normalized : Vector3d.up;
         double nx = Slider("    Orientation: normal X", n.x, -1, 1, "0.000");
         double ny = Slider("    Orientation: normal Y", n.y, -1, 1, "0.000");
         double nz = Slider("    Orientation: normal Z", n.z, -1, 1, "0.000");
-        if (nx * nx + ny * ny + nz * nz > 1e-12) h.Normal = new Vector3d(nx, ny, nz);
+        if ((nx != n.x || ny != n.y || nz != n.z) && nx * nx + ny * ny + nz * nz > 1e-12) h.Normal = new Vector3d(nx, ny, nz);
         h.Steps = (int)Math.Max(1.0, Math.Min(Slider("    Quality (ray steps; lower = faster)", h.Steps, 16, 5000, "0"), 1000000.0));
         h.BoundRadius = Slider("    Drawn out to (units; 0 = automatic)", h.BoundRadius, 0, 5000, "0");
     }
