@@ -3,7 +3,7 @@
 .NOTES     Exit codes: 0 success, 1 failure, 2 Unity licence problem.
 #>
 param(
-    [string]$UnityExe = $(if ($env:UNITY_EXE) { $env:UNITY_EXE } else { 'E:\Tools\Unity\2019.4.18f1\Editor\Unity.exe' }),
+    [string]$UnityExe = 'E:\Tools\Unity\2019.4.18f1\Editor\Unity.exe',
     [string]$ProjectPath = '',
     [string]$OutDir = '',
     [int]$TimeoutMinutes = 30

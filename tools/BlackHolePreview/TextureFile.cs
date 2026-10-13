@@ -19,8 +19,9 @@ internal sealed class TextureFile
         _pixels = pixels;
     }
 
-    /// <summary>The image at <paramref name="path"/> (or path.png), or null when there is none.</summary>
-    public static TextureFile Load(string path)
+    /// <summary>The image at <paramref name="path"/> (or path.png), or null when there is none; colours made linear unless
+    /// <paramref name="srgb"/> is false (data maps: coverage, cloud types).</summary>
+    public static TextureFile Load(string path, bool srgb = true)
     {
         if (string.IsNullOrEmpty(path)) return null;
         if (!File.Exists(path) && File.Exists(path + ".png")) path += ".png";
@@ -86,7 +87,7 @@ internal sealed class TextureFile
             float r, g, b, a = 1f;
             if (channels <= 2) { r = g = b = image[o] / 255f; if (channels == 2) a = image[o + 1] / 255f; }
             else { r = image[o] / 255f; g = image[o + 1] / 255f; b = image[o + 2] / 255f; if (channels == 4) a = image[o + 3] / 255f; }
-            pixels[i] = new Vector4(ToLinear(r), ToLinear(g), ToLinear(b), a);
+            pixels[i] = srgb ? new Vector4(ToLinear(r), ToLinear(g), ToLinear(b), a) : new Vector4(r, g, b, a);
         }
         return new TextureFile(w, h, pixels);
     }
@@ -98,6 +99,9 @@ internal sealed class TextureFile
     }
 
     private static float ToLinear(float c) => c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+
+    /// <summary>The texel in column <paramref name="x"/>, row <paramref name="y"/> (row 0 the top, as stored).</summary>
+    public Vector4 Pixel(int x, int y) => _pixels[y * Width + x];
 
     /// <summary>The image at (u, v), v up as in Unity, bilinear, edges clamped.</summary>
     public Vector4 Sample(float u, float v)

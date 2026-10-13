@@ -24,7 +24,24 @@
     <Compile Include="..\..\src\KSPVE.Pure\Space\ProceduralObjects.cs" Link="Pure\ProceduralObjects.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\RocheStream.cs" Link="Pure\RocheStream.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\StreamShape.cs" Link="Pure\StreamShape.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\SolidRocks.cs" Link="Pure\SolidRocks.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Config\CfgParser.cs" Link="Pure\CfgParser.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Clouds\*.cs" LinkBase="Pure\Clouds" />
+    <Compile Include="..\..\src\KSPVE.Pure\Textures\*.cs" LinkBase="Pure\Textures" />
+    <Compile Include="..\..\src\KSPVE.Pure\Climate\*.cs" LinkBase="Pure\Climate" />
+    <Compile Include="..\..\src\KSPVE.Pure\Water\**\*.cs" LinkBase="Pure\Water" />
+    <!-- Structures made of particles on real orbits (evaporating planets, impact debris, synestias ...). -->
+    <Compile Include="..\..\src\KSPVE.Pure\Space\Particles\*.cs" LinkBase="Pure\Particles" />
+    <!-- The fluid-dynamics atmospheres of brown dwarfs (the browndwarf command). -->
+    <Compile Include="..\..\src\KSPVE.Pure\Fluids\*.cs" LinkBase="Pure\Fluids" />
+    <Compile Include="..\..\src\KSPVE.Pure\ColorScience\Rgb.cs" Link="Pure\Rgb.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\ColorScience\ColorTemperature.cs" Link="Pure\ColorTemperature.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Stars\*.cs" LinkBase="Pure\Stars" />
+    <Compile Include="..\..\src\KSPVE.Pure\SpaceWeather\SolarWind.cs" Link="Pure\SolarWind.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Atmospherics\Eclipse.cs" Link="Pure\Eclipse.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Atmospherics\AirmassExtinction.cs" Link="Pure\AirmassExtinction.cs" />
+    <!-- Aurorae and airglow (the preview runs the shader's reference tracer). -->
+    <Compile Include="..\..\src\KSPVE.Pure\Aurora\*.cs" LinkBase="Pure\Aurora" />
+    <Compile Include="..\..\src\KSPVE.Pure\Lighting\Photometry.cs" Link="Pure\Photometry.cs" />
   </ItemGroup>
 </Project>

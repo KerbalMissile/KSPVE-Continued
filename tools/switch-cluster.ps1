@@ -18,7 +18,7 @@ param(
     [string]$KspDir = $env:KSPDIR
 )
 $ErrorActionPreference = 'Stop'
-if (-not $KspDir) { $KspDir = 'C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program' }
+if (-not $KspDir) { $KspDir = 'E:\SteamLibrary\steamapps\common\Kerbal Space Program' }
 $kss2 = Join-Path $KspDir 'GameData\KSS2'
 $parked = Join-Path $KspDir 'GameData_KSPVE_parked\KSS2'
 $systems = 'SystemAethera', 'SystemKormin', 'SystemOrbel', 'SystemSeereon'

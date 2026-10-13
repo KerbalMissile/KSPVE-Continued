@@ -4,7 +4,7 @@ param(
     [int]$TimeoutMinutes = 20
 )
 $ErrorActionPreference = "Stop"
-if (-not $KspDir) { $KspDir = "C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program" }
+if (-not $KspDir) { $KspDir = "E:\SteamLibrary\steamapps\common\Kerbal Space Program" }
 $exe = Join-Path $KspDir "KSP_x64.exe"
 if (-not (Test-Path $exe)) { throw "KSP not found at '$KspDir'." }
 if (Get-Process KSP_x64 -ErrorAction SilentlyContinue) { throw "KSP is already running; close it first." }

@@ -1,11 +1,18 @@
 <Project>
   <Import Project="Directory.Build.local.props" Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
   <PropertyGroup>
-    <KSPDIR Condition="'$(KSPDIR)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program</KSPDIR>
+    <KSPDIR Condition="'$(KSPDIR)' == ''">E:\SteamLibrary\steamapps\common\Kerbal Space Program</KSPDIR>
     <LangVersion>10.0</LangVersion>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <Deterministic>true</Deterministic>
-    <Version>0.4.1</Version>
+    <Version>0.5.0</Version>
+  </PropertyGroup>
+  <!-- With KSPVE_BUILD_ROOT set (an environment variable), every project builds under that folder instead of its own
+       bin/obj, so several builds can run side by side without locking each other's files. -->
+  <PropertyGroup Condition="'$(KSPVE_BUILD_ROOT)' != ''">
+    <BaseIntermediateOutputPath>$(KSPVE_BUILD_ROOT)\$(MSBuildProjectName)\obj\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(KSPVE_BUILD_ROOT)\$(MSBuildProjectName)\bin\</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
 </Project>

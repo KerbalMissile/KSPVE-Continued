@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -81,6 +81,8 @@ public sealed class Engine : MonoBehaviour
             Log.Exception("Reading KSPVE_BLACKHOLE nodes failed; black holes are off", ex);
         }
 
+        Features.Create(_configIssues);
+
         _window = gameObject.AddComponent<SettingsWindow>();
         if (Options.SelfTest) gameObject.AddComponent<KSPVE.Dev.SelfTestRunner>();
 
@@ -91,6 +93,7 @@ public sealed class Engine : MonoBehaviour
     {
         KSPVE.Space.DiskDragDriver.FixedUpdate();
         KSPVE.Space.SolidRockDriver.FixedUpdate();
+        Features.FixedUpdate();
     }
 
     private void LateUpdate()
@@ -139,6 +142,7 @@ public sealed class Engine : MonoBehaviour
                 Log.Exception("Attaching post-processing failed (logged once)", ex);
             }
         }
+        Features.Update(RenderingAllowed);
     }
 
     /// <summary>Writes KSPVE_POST, the HDR switch and the black hole tweaks to PluginData/user.cfg, keeping any other user nodes.</summary>
@@ -149,7 +153,9 @@ public sealed class Engine : MonoBehaviour
             CfgNode core = KspConfig.LoadUserNodes().Find(n => n.Name == CoreSettings.Schema.NodeName)
                            ?? new CfgNode(CoreSettings.Schema.NodeName);
             core.SetValue(CoreSettings.HdrCameras.Key, Hdr.Enabled ? "True" : "False");
-            KspConfig.SaveUserNodes(new[] { Post.ToCfg(), core, KSPVE.Space.BlackHoles.UserNode() });
+            var nodes = new List<CfgNode> { Post.ToCfg(), core, KSPVE.Space.BlackHoles.UserNode() };
+            nodes.AddRange(Features.UserNodes());
+            KspConfig.SaveUserNodes(nodes);
             Log.Info("Saved settings to " + Paths.UserConfigPath);
             return true;
         }
@@ -206,6 +212,7 @@ public sealed class Engine : MonoBehaviour
 
     private void OnApplicationQuit()
     {
+        Features.Shutdown();
         _marker?.EndSession();
     }
 

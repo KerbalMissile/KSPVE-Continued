@@ -27,7 +27,7 @@ internal sealed class SettingsWindow : MonoBehaviour
 
     private bool _visible;
     private bool _hiddenForScreenshot;
-    private Rect _rect = new Rect(120, 120, 520, 760);
+    private Rect _rect = new Rect(120, 120, 560, 760);
     private Vector2 _scroll;
     private string _status = string.Empty;
     private int _openHole = -1; // black hole (or other object) whose panel is open
@@ -84,7 +84,12 @@ internal sealed class SettingsWindow : MonoBehaviour
         Engine engine = Engine.Instance;
         PostProfile p = engine.Post;
 
-        _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.Height(_rect.height - 110));
+        // Everything inside stays as wide as the window (long lines wrap, grids share the width out) and scrolls only
+        // up and down, so nothing is ever cut off at the right edge.
+        bool wrap = GUI.skin.label.wordWrap;
+        GUI.skin.label.wordWrap = true;
+        _scroll = GUILayout.BeginScrollView(_scroll, false, true, GUIStyle.none, GUI.skin.verticalScrollbar, GUILayout.Height(_rect.height - 110));
+        GUILayout.BeginVertical(GUILayout.Width(_rect.width - 44));
 
         Header("General");
         p.Enabled = Toggle("Post-processing   (kill switch: Ctrl+Alt+K)", p.Enabled);
@@ -175,10 +180,19 @@ internal sealed class SettingsWindow : MonoBehaviour
         }
         p.OrbitPaths = Toggle("Orbit paths in the map (every body's next lap)", p.OrbitPaths);
 
+        foreach (Feature f in Features.All)
+        {
+            if (f.SettingsTitle == null) continue;
+            Header(f.SettingsTitle);
+            Features.Guard(f, "DrawSettings", f.DrawSettings);
+        }
+
         Header("Debug");
         p.DebugView = (DebugView)GUILayout.SelectionGrid((int)p.DebugView, DebugNames, 4);
 
+        GUILayout.EndVertical();
         GUILayout.EndScrollView();
+        GUI.skin.label.wordWrap = wrap;
 
         GUILayout.BeginHorizontal();
         if (GUILayout.Button("Save"))
@@ -188,6 +202,7 @@ internal sealed class SettingsWindow : MonoBehaviour
         if (GUILayout.Button("Defaults"))
         {
             engine.ResetPost();
+            Features.ResetToDefaults();
             _status = "Defaults restored (not saved yet)";
         }
         if (GUILayout.Button("Screenshot 2x"))
@@ -980,7 +995,7 @@ internal sealed class SettingsWindow : MonoBehaviour
         GUILayout.Label("    " + (pick != null ? pick.bodyName : "?"), GUILayout.Width(200));
         if (GUILayout.Button(">", GUILayout.Width(30))) _addBody = (_addBody + 1) % bodies.Count;
         GUILayout.EndHorizontal();
-        _addKind = GUILayout.SelectionGrid(_addKind, SpaceObjects.KindNames, 4);
+        _addKind = GUILayout.SelectionGrid(_addKind, SpaceObjects.KindNames, 3);
         if (pick != null && GUILayout.Button($"Add a {SpaceObjects.KindName((SpaceObjectKind)_addKind)} round {pick.bodyName}"))
         {
             BlackHoles.Add(pick.bodyName, (SpaceObjectKind)_addKind);
@@ -1045,46 +1060,9 @@ internal sealed class SettingsWindow : MonoBehaviour
         if (GUILayout.Button("    Stop (writes tde = off)")) TidalDisruptions.SetSwitch(false);
     }
 
-    private static void Header(string text)
-    {
-        GUILayout.Space(8);
-        GUILayout.Label("<b>" + text + "</b>");
-    }
+    private static void Header(string text) => Gui.Header(text);
 
-    private static bool Toggle(string label, bool value) => GUILayout.Toggle(value, " " + label);
+    private static bool Toggle(string label, bool value) => Gui.Toggle(label, value);
 
-    private static readonly System.Collections.Generic.Dictionary<string, string> Typed = new System.Collections.Generic.Dictionary<string, string>();
-
-    /// <summary>
-    /// A labelled slider over a handy range, with a box to type any value at all (no limits). The value only changes
-    /// when the player drags the slider or types a number: just opening a panel never clamps anything.
-    /// </summary>
-    private static double Slider(string label, double value, double min, double max, string format = "0.00")
-    {
-        GUILayout.BeginHorizontal();
-        GUILayout.Label(label, GUILayout.Width(230));
-        float shown = (float)Math.Max(min, Math.Min(max, value));
-        float v = GUILayout.HorizontalSlider(shown, (float)min, (float)max, GUILayout.Width(160));
-        string name = "KSPVE value " + label;
-        if (v != shown)
-        {
-            value = Math.Round(v, 3);
-            Typed.Remove(name);
-        }
-        // While the box has the keyboard, it shows what is being typed; otherwise the value itself.
-        bool typing = GUI.GetNameOfFocusedControl() == name;
-        string current = value.ToString(format, CultureInfo.InvariantCulture);
-        string text = typing && Typed.TryGetValue(name, out string t) ? t : current;
-        GUI.SetNextControlName(name);
-        string entered = GUILayout.TextField(text, GUILayout.Width(80));
-        if (entered != text)
-        {
-            Typed[name] = entered;
-            if (double.TryParse(entered, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) && !double.IsNaN(parsed) && !double.IsInfinity(parsed))
-                value = parsed;
-        }
-        else if (!typing) Typed.Remove(name);
-        GUILayout.EndHorizontal();
-        return value;
-    }
+    private static double Slider(string label, double value, double min, double max, string format = "0.00") => Gui.Slider(label, value, min, max, format);
 }

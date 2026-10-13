@@ -1,4 +1,4 @@
-﻿// CPU port of unity/KSPVEShaders/Assets/Shaders/Space/BlackHole.shader, line for line, to preview the
+// CPU port of unity/KSPVEShaders/Assets/Shaders/Space/BlackHole.shader, line for line, to preview the
 // image without launching KSP.
 // Usage: dotnet run -- <out.png> [width] [height] [inclinationDeg] [distance] [time]
 //        dotnet run -- debug
@@ -409,9 +409,15 @@ internal static partial class Program
     {
         if (args.Length > 0 && (args[0] == "object" || args[0] == "object-cfg")) return RenderObject(args);
         if (args.Length > 0 && args[0] == "star") return RenderStar(args);
+        if (args.Length > 0 && args[0] == "starfx") return StarFx.Run(args);
+        if (args.Length > 0 && args[0] == "structure") return StructurePreview.Run(args);
         if (args.Length > 0 && args[0] == "procedural") return ProceduralTool.Run(args);
         if (args.Length > 0 && args[0] == "tde-info") return TdeInfo.Run(args);
         if (args.Length > 0 && args[0] == "eve-info") return EveInfo.Run(args);
+        if (args.Length > 0 && args[0] == "browndwarf") return BrownDwarfPreview.Run(args);
+        if (args.Length > 0 && args[0] == "aurora") return AuroraPreview.Run(args);
+        if (args.Length > 0 && args[0] == "snow") return SnowPreview.Run(args);
+        if (args.Length > 0 && (args[0] == "water-ocean" || args[0] == "water-rivers")) return WaterPreview.Run(args);
         if (args.Length > 0 && args[0] == "tde") return RenderTde(args);
         if (args.Length > 0 && args[0] == "tde-svg") return TdeSvg.Run(args);
         if (args.Length > 0 && args[0] == "palette")
@@ -474,6 +480,9 @@ internal static partial class Program
         (right, up) = (right * MathF.Cos(roll) + up * MathF.Sin(roll), up * MathF.Cos(roll) - right * MathF.Sin(roll));
         float tanY = MathF.Tan(EnvFloat("BH_FOV", 60f) * 0.5f * MathF.PI / 180f), tanX = tanY * w / h;   // vertical field of view
         PixelAngle = 2f * tanY / h;
+        // Where in the frame the hole appears (-1..1 across, -1..1 up; 0,0 = the middle): an off-centre lens, as a crop
+        // of a larger picture, to frame it like a reference image.
+        float shiftX = EnvFloat("BH_SHIFTX", 0f), shiftY = EnvFloat("BH_SHIFTY", 0f);
 
         var rgb = new byte[w * h * 3];
         Parallel.For(0, h, py =>
@@ -481,7 +490,7 @@ internal static partial class Program
             for (int px = 0; px < w; px++)
             {
                 float u = (px + 0.5f) / w, v = 1f - (py + 0.5f) / h;
-                Vector3 dir = Vector3.Normalize(forward + right * (u * 2 - 1) * tanX + up * (v * 2 - 1) * tanY);
+                Vector3 dir = Vector3.Normalize(forward + right * (u * 2 - 1 - shiftX) * tanX + up * (v * 2 - 1 - shiftY) * tanY);
                 Jitter = 0.2f + 0.8f * Frac(MathF.Sin(px * 12.9898f + py * 78.233f) * 43758.5453f);
                 Vector4 c = Trace(camPos, dir);
                 // The shader writes sRGB-encoded colour premultiplied over the scene; composite over black here.
@@ -1070,6 +1079,8 @@ internal static partial class Program
     static float SmoothStep(float e0, float e1, float x) { float t = Math.Clamp((x - e0) / (e1 - e0), 0f, 1f); return t * t * (3 - 2 * t); }
 
     // Minimal PNG writer (RGB8, zlib via ZLibStream).
+    internal static void WritePngPublic(string path, int w, int h, byte[] rgb) => WritePng(path, w, h, rgb);
+
     static void WritePng(string path, int w, int h, byte[] rgb)
     {
         using var raw = new MemoryStream();

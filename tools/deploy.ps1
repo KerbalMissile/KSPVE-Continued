@@ -4,7 +4,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
-if (-not $KspDir) { $KspDir = "C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program" }
+if (-not $KspDir) { $KspDir = "E:\SteamLibrary\steamapps\common\Kerbal Space Program" }
 if (-not (Test-Path (Join-Path $KspDir "KSP_x64.exe"))) { throw "KSP not found at '$KspDir'." }
 if (Get-Process KSP_x64 -ErrorAction SilentlyContinue) { throw "KSP is running; close it before deploying." }
 

@@ -1,0 +1,176 @@
+// Tessendorf's FFT ocean (KSPVE.Pure.Water.OceanCascade is the line-for-line CPU copy of this maths).
+// Each cascade is one band of the sea's spectrum on a periodic square of side _KSPVE_Lengths[c]. Per frame:
+//   Spectrum   h(k,t) = h0(k) e^(i w t) + conj(h0(-k)) e^(-i w t), and the spectra of the displacement and slopes, packed two real
+//              fields to a complex number (z = F + iG, so one transform gives both: F in the real part, G in the imaginary part)
+//   Rows/Cols  an unnormalised inverse FFT (radix 2, Stockham, in groupshared memory) along rows then columns
+//   Assemble   unpacks into the height/displacement, slope and Jacobian textures, and keeps the whitecaps' foam, which fades
+// The angular frequencies are rounded to multiples of 2 pi / Period so the sea repeats exactly every Period seconds and the time
+// handed in (mod Period) is exact in single precision for ever.
+#pragma kernel Spectrum
+#pragma kernel Rows128 FFT_SIZE=128
+#pragma kernel Rows256 FFT_SIZE=256
+#pragma kernel Rows512 FFT_SIZE=512
+#pragma kernel Cols128 FFT_SIZE=128 VERTICAL
+#pragma kernel Cols256 FFT_SIZE=256 VERTICAL
+#pragma kernel Cols512 FFT_SIZE=512 VERTICAL
+#pragma kernel Assemble
+#pragma only_renderers d3d11
+
+#define PI 3.14159265358979
+
+uint _KSPVE_N;                      // texels along a side
+float4 _KSPVE_Lengths;              // side (m) of each cascade
+float _KSPVE_Time;                  // seconds, already mod the period
+float _KSPVE_Period;                // s
+float _KSPVE_Gravity;               // m/s2
+float _KSPVE_SurfaceTension;        // m3/s2 (surface tension over density)
+float _KSPVE_HeightScale;           // display setting: 1 is the real sea
+float _KSPVE_Chop;                  // choppiness lambda
+float4 _KSPVE_FoamThreshold;        // Jacobian under which each cascade foams (Whitecaps.JacobianThreshold)
+float _KSPVE_FoamDecay;             // per-frame multiplier exp(-dt / lifetime)
+float _KSPVE_FoamGain;              // foam added per unit of Jacobian below the threshold
+
+Texture2DArray<float4> _KSPVE_H0;           // (h0(k).xy, h0(-k).xy)
+RWTexture2DArray<float4> _KSPVE_SpecA;      // z0, z1
+RWTexture2DArray<float4> _KSPVE_SpecB;      // z2, z3
+RWTexture2DArray<float4> _KSPVE_PingA;
+RWTexture2DArray<float4> _KSPVE_PingB;
+RWTexture2DArray<float4> _KSPVE_Disp;       // (Dx, height, Dz, jacobian)
+RWTexture2DArray<float4> _KSPVE_Deriv;      // (slope x, slope z, foam, 0)
+
+float2 CMul(float2 a, float2 b) { return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+
+// z = F + i G for Hermitian spectra F and G.
+float2 Pack(float2 f, float2 g) { return float2(f.x - g.y, f.y + g.x); }
+
+[numthreads(8, 8, 1)]
+void Spectrum(uint3 id : SV_DispatchThreadID)
+{
+    uint n = _KSPVE_N;
+    if (id.x >= n || id.y >= n) return;
+    int mx = id.x < n / 2 ? (int)id.x : (int)id.x - (int)n;
+    int mz = id.y < n / 2 ? (int)id.y : (int)id.y - (int)n;
+    float length = _KSPVE_Lengths[id.z];
+    float dk = 2.0 * PI / length;
+    float kx = mx * dk, kz = mz * dk;
+    float k = sqrt(kx * kx + kz * kz);
+    float4 h0 = _KSPVE_H0[id];
+    float4 zero = 0;
+    if (k <= 0.0)
+    {
+        _KSPVE_SpecA[id] = zero; _KSPVE_SpecB[id] = zero;
+        return;
+    }
+    float w0 = 2.0 * PI / _KSPVE_Period;
+    float w = sqrt((_KSPVE_Gravity * k + _KSPVE_SurfaceTension * k * k * k));
+    w = max(round(w / w0), 1.0) * w0;
+    float c = cos(w * _KSPVE_Time), s = sin(w * _KSPVE_Time);
+    float2 e = float2(c, s);
+    // h0(k) e^(iwt) + conj(h0(-k)) e^(-iwt)
+    float2 a = CMul(h0.xy, e);
+    float2 b = CMul(float2(h0.z, -h0.w), float2(c, -s));
+    float2 h = (a + b) * _KSPVE_HeightScale;
+    float ux = kx / k, uz = kz / k;
+    float2 I = float2(0, 1);
+    float2 dx = CMul(I, h) * ux;            // displacement D = i (k / |k|) h
+    float2 dz = CMul(I, h) * uz;
+    float2 sx = CMul(I, h) * kx;            // slope = i k h
+    float2 sz = CMul(I, h) * kz;
+    float2 dxx = -h * ux * kx;              // gradient of D = -(k k / |k|) h
+    float2 dzz = -h * uz * kz;
+    float2 dxz = -h * ux * kz;
+    float2 z0 = Pack(h, dx), z1 = Pack(dz, sx), z2 = Pack(sz, dxx), z3 = Pack(dzz, dxz);
+    _KSPVE_SpecA[id] = float4(z0, z1);
+    _KSPVE_SpecB[id] = float4(z2, z3);
+}
+
+#ifdef FFT_SIZE
+#define HALF (FFT_SIZE / 2)
+
+groupshared float4 gs_A[FFT_SIZE];
+groupshared float4 gs_B[FFT_SIZE];
+
+// One line of the inverse transform (Stockham autosort, N/2 threads), for the line's two complex numbers per texel at once.
+void Line(uint t, uint ln, uint cascade, RWTexture2DArray<float4> src, RWTexture2DArray<float4> dst)
+{
+#ifdef VERTICAL
+    uint3 p0 = uint3(ln, t, cascade), p1 = uint3(ln, t + HALF, cascade);
+#else
+    uint3 p0 = uint3(t, ln, cascade), p1 = uint3(t + HALF, ln, cascade);
+#endif
+    gs_A[t] = src[p0];
+    gs_A[t + HALF] = src[p1];
+    GroupMemoryBarrierWithGroupSync();
+    bool flip = false;
+    [unroll]
+    for (uint ns = 1; ns < FFT_SIZE; ns <<= 1)
+    {
+        uint k = t & (ns - 1);
+        float angle = PI * k / ns;        // +2 pi k / (2 ns): the inverse transform
+        float2 tw = float2(cos(angle), sin(angle));
+        float4 v0, v1;
+        if (!flip) { v0 = gs_A[t]; v1 = gs_A[t + HALF]; }
+        else { v0 = gs_B[t]; v1 = gs_B[t + HALF]; }
+        float4 r1 = float4(CMul(v1.xy, tw), CMul(v1.zw, tw));
+        uint o = (t / ns) * ns * 2 + k;
+        GroupMemoryBarrierWithGroupSync();
+        if (!flip) { gs_B[o] = v0 + r1; gs_B[o + ns] = v0 - r1; }
+        else { gs_A[o] = v0 + r1; gs_A[o + ns] = v0 - r1; }
+        GroupMemoryBarrierWithGroupSync();
+        flip = !flip;
+    }
+    if (!flip) { dst[p0] = gs_A[t]; dst[p1] = gs_A[t + HALF]; }
+    else { dst[p0] = gs_B[t]; dst[p1] = gs_B[t + HALF]; }
+}
+
+// Rows go spectrum -> ping, columns ping -> spectrum, so the results end where Assemble reads them.
+void RowsBody(uint t, uint ln, uint cascade)
+{
+    Line(t, ln, cascade, _KSPVE_SpecA, _KSPVE_PingA);
+    GroupMemoryBarrierWithGroupSync();
+    Line(t, ln, cascade, _KSPVE_SpecB, _KSPVE_PingB);
+}
+
+void ColsBody(uint t, uint ln, uint cascade)
+{
+    Line(t, ln, cascade, _KSPVE_PingA, _KSPVE_SpecA);
+    GroupMemoryBarrierWithGroupSync();
+    Line(t, ln, cascade, _KSPVE_PingB, _KSPVE_SpecB);
+}
+
+#if FFT_SIZE == 128 && !defined(VERTICAL)
+[numthreads(64, 1, 1)] void Rows128(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) { RowsBody(gt.x, gid.x, gid.y); }
+#endif
+#if FFT_SIZE == 256 && !defined(VERTICAL)
+[numthreads(128, 1, 1)] void Rows256(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) { RowsBody(gt.x, gid.x, gid.y); }
+#endif
+#if FFT_SIZE == 512 && !defined(VERTICAL)
+[numthreads(256, 1, 1)] void Rows512(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) { RowsBody(gt.x, gid.x, gid.y); }
+#endif
+#if FFT_SIZE == 128 && defined(VERTICAL)
+[numthreads(64, 1, 1)] void Cols128(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) { ColsBody(gt.x, gid.x, gid.y); }
+#endif
+#if FFT_SIZE == 256 && defined(VERTICAL)
+[numthreads(128, 1, 1)] void Cols256(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) { ColsBody(gt.x, gid.x, gid.y); }
+#endif
+#if FFT_SIZE == 512 && defined(VERTICAL)
+[numthreads(256, 1, 1)] void Cols512(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) { ColsBody(gt.x, gid.x, gid.y); }
+#endif
+#endif
+
+[numthreads(8, 8, 1)]
+void Assemble(uint3 id : SV_DispatchThreadID)
+{
+    uint n = _KSPVE_N;
+    if (id.x >= n || id.y >= n) return;
+    float4 a = _KSPVE_SpecA[id], b = _KSPVE_SpecB[id];
+    // The real and imaginary parts of each packed result are the two fields: z0 = h, Dx; z1 = Dz, sx; z2 = sz, Dxx; z3 = Dzz, Dxz.
+    float h = a.x, dx = a.y, dz = a.z, sx = a.w;
+    float sz = b.x, dxx = b.y, dzz = b.z, dxz = b.w;
+    float lambda = _KSPVE_Chop;
+    float jac = (1.0 + lambda * dxx) * (1.0 + lambda * dzz) - lambda * lambda * dxz * dxz;
+    _KSPVE_Disp[id] = float4(lambda * dx, h, lambda * dz, jac);
+    float previous = _KSPVE_Deriv[id].z * _KSPVE_FoamDecay;
+    float source = saturate((_KSPVE_FoamThreshold[id.z] - jac) * _KSPVE_FoamGain);
+    _KSPVE_Deriv[id] = float4(sx, sz, max(previous, source), 0);
+}
