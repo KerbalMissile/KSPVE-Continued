@@ -411,6 +411,7 @@ internal static partial class Program
         if (args.Length > 0 && args[0] == "star") return RenderStar(args);
         if (args.Length > 0 && args[0] == "procedural") return ProceduralTool.Run(args);
         if (args.Length > 0 && args[0] == "tde-info") return TdeInfo.Run(args);
+        if (args.Length > 0 && args[0] == "eve-info") return EveInfo.Run(args);
         if (args.Length > 0 && args[0] == "tde") return RenderTde(args);
         if (args.Length > 0 && args[0] == "tde-svg") return TdeSvg.Run(args);
         if (args.Length > 0 && args[0] == "palette")

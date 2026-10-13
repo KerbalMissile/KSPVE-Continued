@@ -428,6 +428,7 @@ internal sealed class SettingsWindow : MonoBehaviour
     }
 
     private static readonly string[] GasNames = { "Emission", "Reflection", "Dark", "Supernova remnant", "Pillars" };
+    private static readonly string[] RockCollisionNames = { "Off (drawn only)", "As drawn (hit what you see)", "Realistic (as rare as reality)" };
     private static readonly string[] TextureModeNames = { "Top-down", "Ramp" };
 
     /// <summary>Mass transfer from a companion star: its name, how full of its Roche lobe it is, and the stream's look.</summary>
@@ -776,6 +777,25 @@ internal sealed class SettingsWindow : MonoBehaviour
             h.RockAlbedo = Slider("      Rock brightness (albedo)", h.RockAlbedo, 0, 2);
             h.RockMaxAngle = Slider("      Largest a rock looks up close (deg; 0 = no limit)", h.RockMaxAngle, 0, 5);
             h.RockColor = ColorSliders("      Rock colour", h.RockColor);
+            GUILayout.Label("      Rocks a craft can hit:");
+            var collisions = (RockCollisions)GUILayout.SelectionGrid((int)h.RockCollisions, RockCollisionNames, 3);
+            if (collisions != h.RockCollisions)
+            {
+                h.RockCollisions = collisions;
+                GUI.changed = true;
+            }
+            if (h.RockCollisions == RockCollisions.AsDrawn)
+            {
+                h.SolidRockSpacing = Slider("        Spacing of the solid rocks (m)", h.SolidRockSpacing, 50, 20000, "0");
+                h.SolidRockSize = Slider("        Largest solid rock (radius, m)", h.SolidRockSize, 1, 2000, "0");
+            }
+            if (h.RockCollisions != RockCollisions.Off)
+            {
+                h.SolidRockRange = Slider("        How far round the craft they are solid (m)", h.SolidRockRange, 1000, 50000, "0");
+                GUILayout.Label(h.RockCollisions == RockCollisions.Realistic
+                    ? "        As many as a real belt: rocks millions of km apart, so a hit is as rare as in reality."
+                    : "        Solid rocks round your craft, drawn as they are: what you see you can hit. None in on-rails time warp.");
+            }
         }
         h.RotationSpeed = Slider("    Spin speed", h.RotationSpeed, 0, 1, "0.000");
         h.Spin = Toggle("    Reverse spin", h.Spin < 0) ? -1.0 : 1.0;

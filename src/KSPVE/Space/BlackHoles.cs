@@ -73,6 +73,9 @@ internal sealed class BlackHoleDefinition
     public double StarRadius, SurfaceTemperature, StarTemperature, FieldLines, AccretionColumns, Beams;
     public double Flaring, Rings, RingDepth, RingWidth, StarGlow, Dust, LightFalloff;
     public double Rocks, RockSize, RockSpacing, RockAlbedo, RockMaxAngle;
+    /// <summary>Whether its rocks can be hit, and the solid field's spacing, largest radius and reach (m).</summary>
+    public RockCollisions RockCollisions;
+    public double SolidRockSpacing, SolidRockSize, SolidRockRange;
     public double BulgeSize, BulgeBrightness, BarLength, StarClusters;
     public double DustLanes, CloudScale, CloudWarp, Filaments, Shell;
     public double Activity, ComaSize, IonTailLength, DustTailLength, DustTailCurve, DustTailWidth;
@@ -158,6 +161,10 @@ internal sealed class BlackHoleDefinition
         SpiralWinding = v.Get(BlackHoleSettings.SpiralWinding),
         RockSpread = v.Get(BlackHoleSettings.RockSpread),
         RockSizeSpread = v.Get(BlackHoleSettings.RockSizeSpread),
+        RockCollisions = v.Get(BlackHoleSettings.RockCollisionMode),
+        SolidRockSpacing = v.Get(BlackHoleSettings.SolidRockSpacing),
+        SolidRockSize = v.Get(BlackHoleSettings.SolidRockSize),
+        SolidRockRange = v.Get(BlackHoleSettings.SolidRockRange),
         CloudStretch = v.Get(BlackHoleSettings.CloudStretch),
         CloudRagged = v.Get(BlackHoleSettings.CloudRagged),
         CloudFill = v.Get(BlackHoleSettings.CloudFill),
@@ -335,6 +342,10 @@ internal sealed class BlackHoleDefinition
         .Add(BlackHoleSettings.SpiralStrength.Key, Num(SpiralStrength))
         .Add(BlackHoleSettings.SpiralWinding.Key, Num(SpiralWinding))
         .Add(BlackHoleSettings.RockSpread.Key, Num(RockSpread))
+        .Add(BlackHoleSettings.RockCollisionMode.Key, RockCollisions.ToString())
+        .Add(BlackHoleSettings.SolidRockSpacing.Key, Num(SolidRockSpacing))
+        .Add(BlackHoleSettings.SolidRockSize.Key, Num(SolidRockSize))
+        .Add(BlackHoleSettings.SolidRockRange.Key, Num(SolidRockRange))
         .Add(BlackHoleSettings.RockSizeSpread.Key, Num(RockSizeSpread))
         .Add(BlackHoleSettings.CloudStretch.Key, Num(CloudStretch))
         .Add(BlackHoleSettings.CloudRagged.Key, Num(CloudRagged))
@@ -594,6 +605,9 @@ internal sealed class BlackHoleDefinition
         SpiralWinding = Math.Min(Math.Max(SpiralWinding, -100.0), 100.0);
         RockSpread = Math.Max(RockSpread, 0.0);
         RockSizeSpread = Math.Max(RockSizeSpread, 0.0);
+        SolidRockSpacing = Math.Min(Math.Max(SolidRockSpacing, 10.0), 1e9);
+        SolidRockSize = Math.Min(Math.Max(SolidRockSize, 1.0), 1e6);
+        SolidRockRange = Math.Min(Math.Max(SolidRockRange, 1000.0), 200000.0);
         CloudStretch = Math.Max(CloudStretch, 0.01);
         CloudRagged = Math.Max(CloudRagged, 0.0);
         CloudFill = Math.Min(Math.Max(CloudFill, -10.0), 10.0);

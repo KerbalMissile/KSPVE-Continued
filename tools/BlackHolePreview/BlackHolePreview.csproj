@@ -24,5 +24,7 @@
     <Compile Include="..\..\src\KSPVE.Pure\Space\ProceduralObjects.cs" Link="Pure\ProceduralObjects.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\RocheStream.cs" Link="Pure\RocheStream.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\StreamShape.cs" Link="Pure\StreamShape.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Config\CfgParser.cs" Link="Pure\CfgParser.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Clouds\*.cs" LinkBase="Pure\Clouds" />
   </ItemGroup>
 </Project>

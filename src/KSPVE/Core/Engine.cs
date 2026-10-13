@@ -90,6 +90,7 @@ public sealed class Engine : MonoBehaviour
     private void FixedUpdate()
     {
         KSPVE.Space.DiskDragDriver.FixedUpdate();
+        KSPVE.Space.SolidRockDriver.FixedUpdate();
     }
 
     private void LateUpdate()
