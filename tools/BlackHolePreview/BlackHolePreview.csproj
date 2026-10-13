@@ -22,5 +22,7 @@
     <Compile Include="..\..\src\KSPVE.Pure\Space\SpaceObjects.cs" Link="Pure\SpaceObjects.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\DiskGaps.cs" Link="Pure\DiskGaps.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\ProceduralObjects.cs" Link="Pure\ProceduralObjects.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\RocheStream.cs" Link="Pure\RocheStream.cs" />
+    <Compile Include="..\..\src\KSPVE.Pure\Space\StreamShape.cs" Link="Pure\StreamShape.cs" />
   </ItemGroup>
 </Project>

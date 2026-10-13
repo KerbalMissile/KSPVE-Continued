@@ -34,6 +34,7 @@ internal static partial class Program
         ObjCloudRagged, ObjCloudFill, ObjComaB, ObjIonB, ObjDustB, ObjNucleusB, ObjIonWidth, ObjStreamers, ObjStriae,
         ObjFieldCount, ObjFieldShells, ObjFieldRatio, ObjFieldWidth, ObjColumnWidth, ObjBeamWidth, ObjHotspots, ObjRockCap,
         ObjBulge, ObjBulgeB, ObjBar, ObjClusters, ObjHoleUnits;
+    static int ObjGasType;
     static Vector3 ObjInnerColor, ObjOuterColor;
     static Vector3 ObjColorA, ObjColorB, ObjDustColor, ObjOuterDust, ObjRockColor, ObjComaColor, ObjMag, ObjSunDir, ObjVelDir, ObjT, ObjB;
     static readonly Vector4[] ObjGaps = new Vector4[DiskGaps.Max];
@@ -129,6 +130,13 @@ internal static partial class Program
         float illum = MathF.Pow(outer / MathF.Max(d, inner * 0.5f), ObjFalloff);
         float phase = 0.25f + 0.75f * PhaseHG(Vector3.Dot(x / d, -vn), ObjScatterG) * 0.5f;
         Vector3 dustColor = Vector3.Lerp(ObjDustColor, ObjOuterDust, Math.Clamp((r - inner) / MathF.Max(outer - inner, 1e-6f), 0f, 1f));
+        if (Tex != null && TexMode > 0.5f)
+        {
+            Vector3 pdT = ObjFrame(x, out _);
+            Vector4 tx = TexAt(pdT.X, pdT.Y, r, inner, outer);
+            dustColor = TexColor(dustColor, tx);
+            rho *= TexShapeOf(tx);
+        }
         Vector3 scattered = dustColor * StarLight(ObjStarT) * (illum * lightT * phase);
         Vector3 rim = Blackbody(ObjRimT) * (ObjRimGlow * SmoothStep(inner * 1.8f, inner * 0.9f, r));
         color += transmittance * (scattered + rim) * (rho * dt);
@@ -217,21 +225,24 @@ internal static partial class Program
         Vector3 pd = ObjFrame(x, out _);
         // Stretched along the normal and warped twice, so it isn't a ball.
         Vector3 xs = new Vector3(pd.X * 0.75f, pd.Z * 0.75f * ObjCloudStretch, pd.Y);
+        // Its ragged outline first: outside it nothing else needs working out.
+        float edge = (1f - SmoothStep(2f, 11.5f, xs.Length() * (0.3f + ObjCloudRagged * Fbm(pd * 0.12f + new Vector3(6.6f)))))
+            * (1f - SmoothStep(NebulaRadius, 1.3f * NebulaRadius, x.Length()));
+        if (edge <= 0f) return;
         Vector3 q = xs * (0.22f * ObjCloudScale) + new Vector3(0.0f, Time * 0.002f, 0.0f);
         Vector3 w = new Vector3(Fbm(q + new Vector3(1.7f)), Fbm(q + new Vector3(9.2f)), Fbm(q + new Vector3(4.3f))) - new Vector3(0.5f);
         Vector3 p = q + w * (2.2f * ObjWarp);
         Vector3 w2 = new Vector3(Noise3(p * 2.1f + new Vector3(5.5f)), Noise3(p * 2.1f + new Vector3(8.8f)), Noise3(p * 2.1f + new Vector3(2.2f))) - new Vector3(0.5f);
         p += w2 * (0.45f * ObjWarp);
-        float edge = (1f - SmoothStep(2f, 11.5f, xs.Length() * (0.3f + ObjCloudRagged * Fbm(pd * 0.12f + new Vector3(6.6f)))))
-            * (1f - SmoothStep(NebulaRadius, 1.3f * NebulaRadius, x.Length()));
-        // A planetary nebula's shell: the gas piled into a hollow, ragged shell.
+        // A planetary nebula's shell (or a supernova remnant's): the gas piled into a hollow, ragged shell.
+        float shellAmount = ObjGasType == 3 ? 1f : ObjShell;
         float shell = (xs.Length() / NebulaRadius) * (0.85f + 0.3f * Fbm(p * 0.5f + new Vector3(1.1f)));
-        edge *= 1f + ObjShell * (4f * MathF.Exp(-Sq((shell - 0.55f) / 0.06f)) - 1f);
+        edge *= 1f + shellAmount * (4f * MathF.Exp(-Sq((shell - 0.55f) / 0.06f)) - 1f);
         if (edge <= 0f) return;
         float n = Fbm(p);
         gas = edge * MathF.Pow(MathF.Max(n * 2.1f - ObjCloudFill, 0f), 2f) * ObjDust;
         mix = SmoothStep(0.25f, 0.75f, Fbm(p * 0.7f + new Vector3(7.7f)));
-        mix += (SmoothStep(0.45f, 0.62f, shell) - mix) * ObjShell;   // a shell: one gas inside, the other outside (O III, H-alpha)
+        mix += (SmoothStep(0.45f, 0.62f, shell) - mix) * shellAmount;   // a shell: one gas inside, the other outside (O III, H-alpha)
         // Filaments: ridges of two octaves, thin and bright where the gas is.
         float ridge1 = 1f - MathF.Abs(2f * Noise3(p * 2.6f + new Vector3(2.2f)) - 1f);
         float ridge2 = 1f - MathF.Abs(2f * Noise3(p * 6.1f + new Vector3(4.4f)) - 1f);
@@ -301,6 +312,8 @@ internal static partial class Program
         float R = NebulaRadius;
         if (x.Length() > 1.25f * R) return;
         Vector3 pd = ObjFrame(x, out _);
+        float hz0 = MathF.Max(ObjThick, 1e-3f) * R;
+        if (MathF.Abs(pd.Z) > 7f * hz0 && pd.Length() > (4f * ObjBulge + ObjBar) * R + 2f * ObjWarp) return;
         if (ObjWarp > 0f)
         {
             pd.X += (Fbm(pd * 0.15f + new Vector3(1.7f)) - 0.5f) * 4f * ObjWarp;
@@ -338,6 +351,13 @@ internal static partial class Program
         // Dust: in a thinner layer, in lanes along the arms (or smooth with none).
         float dustLayer = MathF.Exp(-MathF.Abs(z) / (0.5f * hz)) * MathF.Exp(-r / (0.4f * R)) * (1f - SmoothStep(0.8f * R, 1.1f * R, r));
         absorb = ObjLanes * dustLayer * (ObjSpiralArms > 0f ? 0.25f + lane : 0.6f) * (0.5f + Fbm(pd * 2.5f + new Vector3(7.7f))) * 8f / hz;
+        if (Tex != null && TexMode > 0.5f)
+        {
+            Vector4 tx = TexAt(pd.X, pd.Y, r, 0f, R);
+            float shape = TexShapeOf(tx);
+            emit = TexColor(emit, tx) * shape;
+            absorb *= shape;
+        }
     }
 
     // ---------------------------------------------------------------------------------------------- neutron star
@@ -431,11 +451,35 @@ internal static partial class Program
         float holeReach = EnvFloat("OBJ_HOLEREACH", 0f);
         bool reachedHole = false;
         float frontTransmittance = 1f;
+        // A thin disk or galaxy seen along a straight ray: march only through the slab it fills.
+        float slabEnd = 1e30f;
+        bool dusty = ObjKind == KindProtoplanetary || ObjKind == KindDebrisDisk || ObjKind == KindAsteroidBelt;
+        if (bend <= 0f && ObjFieldLines <= 0f && ((dusty && (ObjKind != KindProtoplanetary || ObjGlowSize <= 0f)) || ObjKind == KindGalaxy))
+        {
+            float reach = 1f + 0.1f * ObjEdgeSoftness;
+            float H = dusty
+                ? 4f * thick * outer * reach * MathF.Pow(reach, ObjFlaring) * MathF.Max(1f, ObjRockSpread)
+                : MathF.Max(6f * MathF.Max(thick, 1e-3f) * NebulaRadius, (4f * ObjBulge + ObjBar) * NebulaRadius);
+            float z0 = Vector3.Dot(x, N), dz = Vector3.Dot(v, N);
+            float tLo = 0f, tHi = 2f * bound;
+            if (MathF.Abs(dz) > 1e-7f)
+            {
+                float ta = (-H - z0) / dz, tb = (H - z0) / dz;
+                tLo = MathF.Max(MathF.Min(ta, tb), 0f);
+                tHi = MathF.Max(ta, tb);
+            }
+            else if (MathF.Abs(z0) > H) return Vector4.Zero;
+            if (tHi <= tLo || tLo > 2f * bound) return Vector4.Zero;
+            x += v * tLo;
+            traveled += tLo;
+            slabEnd = traveled + (tHi - tLo);
+        }
         for (int k = 0; k < MaxSteps; k++)
         {
             float r = x.Length();
             if (r > bound * 1.001f && Vector3.Dot(x, v) > 0) break;
             if (!reachedHole && r < holeReach) { reachedHole = true; frontTransmittance = transmittance; }
+            if (traveled > slabEnd) break;
             if (r < ObjStarR)
             {
                 if (neutron)
@@ -492,9 +536,52 @@ internal static partial class Program
             else if (ObjKind == KindNebula)
             {
                 Nebula(x, out float gas, out float mix, out float filament, out float dust);
-                Vector3 glowGas = Vector3.Lerp(ObjColorA, ObjColorB, mix) * gas + ObjColorA * (filament * 0.8f);
-                color += transmittance * glowGas * dt;
-                transmittance *= MathF.Exp(-(gas * 0.12f + dust * 1.6f) * dt);
+                Vector3 tint = Vector3.Lerp(ObjColorA, ObjColorB, mix);
+                if (Tex != null && TexMode > 0.5f)
+                {
+                    // Top-down: the image seen along the normal across the cloud; ramp: its colours from one gas to the other.
+                    Vector3 pdT = ObjFrame(x, out float rT);
+                    Vector4 tx = TexMode < 1.5f ? TexAt(pdT.X, pdT.Y, rT, 0f, NebulaRadius) : Tex.Sample(mix, 0.5f);
+                    tint = Vector3.Lerp(tint, new Vector3(tx.X, tx.Y, tx.Z), TexStrength);
+                    float shape = TexShapeOf(tx);
+                    gas *= shape;
+                    filament *= shape;
+                }
+                Vector3 emit;
+                float absorb;
+                if (ObjGasType == 1)
+                {
+                    // Reflection: dust lit by the star at its centre, scattering its light (bluer than the star).
+                    float lit = 1f / (1f + Sq(x.Length() / (0.35f * NebulaRadius)));
+                    emit = ObjColorB * StarLight(ObjStarT) * (gas * 1.5f * lit) + ObjColorA * (filament * 0.2f);
+                    absorb = gas * 0.25f + dust * 1.6f;
+                }
+                else if (ObjGasType == 2)
+                {
+                    // Dark: a cloud of dust, black against what is behind, its edges faintly lit.
+                    emit = ObjColorA * (gas * 0.03f + filament * 0.05f);
+                    absorb = gas * 2.5f + dust * 3f;
+                }
+                else if (ObjGasType == 3)
+                {
+                    // Supernova remnant: a web of glowing filaments in the shell, little gas between them.
+                    emit = tint * (filament * 2.5f + gas * 0.15f);
+                    absorb = dust * 0.5f;
+                }
+                else if (ObjGasType == 4)
+                {
+                    // Pillars: glowing gas carved into dark pillars of dust, their edges lit bright.
+                    float rim = Math.Clamp(dust * 4f, 0f, 1f) * (1f - Math.Clamp(dust * 1.5f, 0f, 1f));
+                    emit = ObjColorA * gas + ObjColorB * (rim * 2.5f * (0.3f + gas)) + ObjColorA * (filament * 0.6f);
+                    absorb = dust * 4f + gas * 0.1f;
+                }
+                else
+                {
+                    emit = tint * gas + ObjColorA * (filament * 0.8f);
+                    absorb = gas * 0.12f + dust * 1.6f;
+                }
+                color += transmittance * emit * dt;
+                transmittance *= MathF.Exp(-absorb * dt);
                 AccumulateStarGlow(x, dt, ref color, transmittance);   // a star inside, lighting it
             }
             else if (ObjKind == KindComet)
@@ -590,6 +677,10 @@ internal static partial class Program
         ObjBulge = F(BlackHoleSettings.BulgeSize); ObjBulgeB = F(BlackHoleSettings.BulgeBrightness); ObjBar = F(BlackHoleSettings.BarLength);
         ObjClusters = F(BlackHoleSettings.StarClusters);
         ObjInnerColor = V(v.Get(BlackHoleSettings.InnerColor)); ObjOuterColor = V(v.Get(BlackHoleSettings.OuterColor));
+        ObjGasType = (int)v.Get(BlackHoleSettings.GasType);
+        Tex = TextureFile.Load(v.Get(BlackHoleSettings.Texture));
+        TexMode = Tex != null ? (int)v.Get(BlackHoleSettings.TextureMapping) : 0f;
+        TexStrength = F(BlackHoleSettings.TextureStrength); TexShape = F(BlackHoleSettings.TextureShape);
         ObjColorA = V(v.Get(BlackHoleSettings.ColorA)); ObjColorB = V(v.Get(BlackHoleSettings.ColorB));
         ObjDustColor = V(v.Get(BlackHoleSettings.DustColor)); ObjOuterDust = V(v.Get(BlackHoleSettings.OuterDustColor));
         ObjRockColor = V(v.Get(BlackHoleSettings.RockColor)); ObjComaColor = V(v.Get(BlackHoleSettings.ComaColor));

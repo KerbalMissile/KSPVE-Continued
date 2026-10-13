@@ -22,6 +22,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             float4 _KSPVE_BHLook;         // peak temperature K, brightness, disk rotation angle (rad, signed), time (s)
             float4 _KSPVE_BHJet;          // jets: strength (0 = off), length (horizon radii), width, gas speed (fraction of c)
             float4 _KSPVE_BHJet2;         // jets: spiral (0..1), swirl twist (rad per unit z^0.45), flow (z^0.45 per s), absorption
+            float4 _KSPVE_BHJet3;         // jets: x strands of the swirl round them, y how thin they are (1 = soft bands)
             float4 _KSPVE_BHJetKnots;     // jets breaking into blobs: x amount 0..1, y where (fraction of the length), z spacing (fraction of z^0.45 along it), w growth
             float4 _KSPVE_BHExtra;        // colour saturation, glow, photon ring, particles 0..1
             float4 _KSPVE_BHRay;          // tan(fovX/2), tan(fovY/2), max steps, bounding radius (horizon radii)
@@ -33,7 +34,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                                           // z: spiral shocks while it forms 0..1, w: glow of the jet heads punching out 0..1
             #define BH_OCCLUDERS 8
             float4 _KSPVE_BHOccluders[BH_OCCLUDERS]; // bodies that may be in front: xyz centre relative to the eye, w radius (horizon radii; 0 = none)
-            float4 _KSPVE_BHStreak;       // x: how much of the streak look this view gets 0..1 (BlackHoleSettings.StreakView); y: outerGlow
+            float4 _KSPVE_BHStreak;       // x: how much of the streak look this view gets 0..1 (BlackHoleSettings.StreakView); y: outerGlow; z: diskEdge; w: diskEvenness
             float4 _KSPVE_BHMask;         // a forming disk fills only this band (horizon radii): x inner, y outer, z edge width (0 = all of it)
             float4 _KSPVE_BHTint;         // the disk's parts: x colours by hand 0..1 (diskTint), y inner brightness, z outer brightness
             float4 _KSPVE_BHTintInner;    // rgb: the inner disk's colour (and the glow's) by hand
@@ -70,7 +71,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             float4 _KSPVE_ObjDisk2;       // dusty disks: x density falloff exponent, y edge softness, z clumpiness, w clump size
             float4 _KSPVE_ObjDisk3;       // dusty disks: x scattering asymmetry g, y rim glow, z rim temperature (K), w rocks' vertical spread
             float4 _KSPVE_ObjSpiral;      // dusty disks: x spiral arms, y their contrast 0..1, z winding; w: rocks' size spread
-            float4 _KSPVE_ObjCloud2;      // nebula: x stretch along the normal, y raggedness, z emptiness between clouds
+            float4 _KSPVE_ObjCloud2;      // nebula: x stretch along the normal, y raggedness, z emptiness between clouds, w gas type (NebulaGas)
             float4 _KSPVE_ObjComet3;      // comet: brightness of x coma, y ion tail, z dust tail, w false nucleus
             float4 _KSPVE_ObjField;       // field lines: x loops round the axis, y shells, z shell ratio, w width (fraction of distance)
             float4 _KSPVE_ObjNeutron2;    // neutron star: x column width (fraction of inner radius), y beam widening, z hot spots
@@ -157,15 +158,18 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
             }
 
+            // Value noise. Its lattice (Hash3 at whole-number points, 64 to a side, repeating) is baked by the plugin into a
+            // 3D texture (NoiseTexture): one hardware trilinear read at smoothstep-warped coordinates gives exactly the
+            // smooth interpolation of the eight corner hashes, many times cheaper; everything (disks, jets, gas) samples it.
+            sampler3D _KSPVE_Noise;
+            static const float NoiseSize = 64.0;
+
             float Noise3(float3 x)
             {
                 float3 i = floor(x);
                 float3 f = frac(x);
                 f = f * f * (3.0 - 2.0 * f);
-                return lerp(lerp(lerp(Hash3(i + float3(0, 0, 0)), Hash3(i + float3(1, 0, 0)), f.x),
-                                 lerp(Hash3(i + float3(0, 1, 0)), Hash3(i + float3(1, 1, 0)), f.x), f.y),
-                            lerp(lerp(Hash3(i + float3(0, 0, 1)), Hash3(i + float3(1, 0, 1)), f.x),
-                                 lerp(Hash3(i + float3(0, 1, 1)), Hash3(i + float3(1, 1, 1)), f.x), f.y), f.z);
+                return tex3Dlod(_KSPVE_Noise, float4((i + f + 0.5) / NoiseSize, 0.0)).r;
             }
 
             float Fbm(float3 p)
@@ -211,6 +215,38 @@ Shader "Hidden/KSPVE/Space/BlackHole"
             }
 
             float3 Saturate(float3 c) { return SaturateBy(c, _KSPVE_BHExtra.x); }
+
+            // A custom texture over an object (BlackHoleSettings.Texture): laid on from above across the outer diameter, or
+            // as a ramp from the inner edge to the outer. Its colours replace the object's (keeping each part's brightness);
+            // its brightness and alpha can carve the object (dark or clear parts become empty).
+            sampler2D _KSPVE_Tex;
+            float4 _KSPVE_TexInfo;        // x: 0 none, 1 top-down, 2 ramp; y: colour strength 0..1; z: shape strength 0..1
+            static const float3 Luma = float3(0.2126, 0.7152, 0.0722);
+
+            float4 TexAt(float2 planeXY, float r, float inner, float outer)
+            {
+                float2 uv = _KSPVE_TexInfo.x < 1.5 ? 0.5 + planeXY / (2.0 * outer) : float2(saturate((r - inner) / max(outer - inner, 1e-6)), 0.5);
+                return tex2Dlod(_KSPVE_Tex, float4(uv, 0.0, 0.0));
+            }
+
+            float3 TexColor(float3 c, float4 t) { return lerp(c, t.rgb * (dot(c, Luma) / max(dot(t.rgb, Luma), 1e-3)), _KSPVE_TexInfo.y); }
+            float TexShape(float4 t) { return lerp(1.0, saturate(dot(t.rgb, Luma) * 1.6) * t.a, _KSPVE_TexInfo.z); }
+
+            // The gaps planets clear (DiskGaps: spread over the disk, or placed one by one); they cut a belt's rocks, or a black hole's disk, too.
+            float GapFactor(float r)
+            {
+                float gaps = 1.0;
+                int gapCount = (int)_KSPVE_ObjShape.y;
+                [loop] for (int k = 0; k < 16; k++)
+                {
+                    if (k >= gapCount) break;
+                    float4 gap = _KSPVE_ObjGaps[k];
+                    float gq = (r - gap.x) / gap.y;
+                    gaps *= 1.0 - gap.z * exp(-gq * gq);
+                }
+                return gaps;
+            }
+
 
             float3 LinearToSrgb(float3 c)
             {
@@ -285,7 +321,8 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 if (r < inner * 0.8 || r > outer * 1.1) return 0.0;
                 float ht = _KSPVE_BHDisk.z * r;
                 if (abs(height) > 3.0 * ht) return 0.0;
-                float outerFade = 1.0 - smoothstep(outer * 0.35, outer, r); // outer disk thins into translucent wisps
+                // The outer disk thins into translucent wisps, or (diskEdge) ends in a crisp edge.
+                float outerFade = lerp(1.0 - smoothstep(outer * 0.35, outer, r), 1.0 - smoothstep(outer * 0.93, outer, r), _KSPVE_BHStreak.z);
                 float face = _KSPVE_BHStreak.x, cloud = 1.0 - face;
                 // Seen from above the inner rim fades in softly, so the dark centre has a soft edge.
                 float radial = smoothstep(inner * 0.85, inner * (1.1 + StreakSoftRim * face), r) * outerFade * outerFade;
@@ -293,6 +330,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     radial *= smoothstep(_KSPVE_BHMask.x - _KSPVE_BHMask.z, _KSPVE_BHMask.x + _KSPVE_BHMask.z, r)
                         * (1.0 - smoothstep(_KSPVE_BHMask.y - _KSPVE_BHMask.z, _KSPVE_BHMask.y + _KSPVE_BHMask.z, r));
                 if (radial <= 0.0) return 0.0;
+                radial *= GapFactor(r);   // rings (gaps), as a dusty disk's
                 float turbulence = _KSPVE_BHDisk.w;
 
                 // Puffy, irregular surface: big rounded lumps with smaller billows on them bulge the disk's half-height.
@@ -421,7 +459,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 }
                 float start = 1.1 * (1.0 - spiralAmount);                                               // the spiral tube starts at the hole
                 float knotAmount = _KSPVE_BHJetKnots.x;
-                if (az < start || az > len * (knotAmount > 0.0 ? 1.25 : 1.0)) return;
+                if (az < start || az > len * (knotAmount > 0.0 ? 1.6 : 1.0)) return;
                 float3 perp = x - z * n;
                 float rho = length(perp);
                 float R = width * pow(az + JetBase * spiralAmount, 0.55);
@@ -446,9 +484,14 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 // The swirl changes how brightly the gas glows, not how much it absorbs, so it still shows where the tube is thick.
                 float u = saturate((az - start) / (0.85 * R));
                 float cap = max(sqrt(u * (2.0 - u)), 1e-3);                                             // rounded end
-                float column = exp(-pow(s / (0.85 * cap), 10.0));
-                float swirl = 0.5 + 0.5 * cos(12.0 * phi - twist + 1.5 * nz);
-                float streaks = 0.7 + (0.6 * swirl - 0.3) * smoothstep(0.15, 0.6, s);                   // on the surface, not the axis
+                // Sharp strands (jetStrandSharpness 1 to 6) turn the solid column into separate threads with dark gaps
+                // between, the column's edge softening into wisps.
+                float threads = saturate((_KSPVE_BHJet3.y - 1.0) / 5.0);
+                float column = exp(-pow(s / (0.85 * cap), lerp(10.0, 3.0, threads)));
+                // Strands, thinner the sharper; as threads they wander, and split into filaments at several radii, like hair.
+                float swirl = pow(0.5 + 0.5 * cos(_KSPVE_BHJet3.x * phi - twist + (1.5 + 1.5 * threads) * nz), _KSPVE_BHJet3.y);
+                swirl *= lerp(1.0, pow(0.5 + 0.5 * cos(6.0 * s + 3.0 * nz), 0.5 * _KSPVE_BHJet3.y), threads);
+                float streaks = lerp(0.7 + (0.6 * swirl - 0.3) * smoothstep(0.15, 0.6, s), 0.08 + 1.8 * swirl * smoothstep(0.1, 0.5, s), threads);   // on the surface, not the axis (where the threads all meet)
                 // The glow fades out halfway along; the gas carries on as a darker, smoky plume.
                 float glowFade = 1.0 - smoothstep(len * 0.3, len * 0.75, az);
                 float spiralGlow = column * streaks * (0.9 + 0.2 * nz) * glowFade;
@@ -467,13 +510,14 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     float moved = flowRate * _KSPVE_BHLook.w;
                     float k0 = floor((pow(az, 0.45) - moved) / spacing - side);
                     float blob = 0.0;
-                    [unroll] for (int j = 0; j < 2; j++)   // the blobs either side, so big ones overlap rather than cut off
+                    [unroll] for (int j = -1; j < 3; j++)   // the blobs round it (each at most 1.2 spacings across), so they overlap rather than cut off
                     {
                         float kq = k0 + j;
                         float zc = pow(max((kq + side) * spacing + moved, 1e-3), 1.0 / 0.45);
                         float seed = kq * 12.9898 + side * 78.233;
                         float hb = frac(sin(seed) * 43758.5453), hx = frac(sin(seed + 1.7) * 43758.5453), hy = frac(sin(seed + 3.1) * 43758.5453);
                         float Rb = width * pow(zc + JetBase * spiralAmount, 0.55) * (0.7 + 1.0 * _KSPVE_BHJetKnots.w * zc / len) * (0.75 + 0.5 * hb);
+                        Rb = min(Rb, 1.2 * spacing * pow(zc, 0.55) / 0.45);
                         float2 wobble = (float2(hx, hy) - 0.5) * (0.7 * Rb);
                         float3 local = float3(dot(perp, t) - wobble.x, dot(perp, b) - wobble.y, az - zc) / Rb;
                         float3 seedOffset = float3(kq * 3.7, side * 9.1, _KSPVE_BHLook.w * 0.05);
@@ -485,7 +529,7 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                         float front = 0.3 + 0.7 * smoothstep(-0.5, 0.7, local.z);   // the bow-shaped leading cap
                         blob += (exp(-shellD * shellD) * front * (0.5 + wisps * wisps) + 0.25 * exp(-coreD * coreD)) * (0.6 + 0.8 * hb);
                     }
-                    float fade = pow(2.0 / max(az, 2.0), 0.6) * (1.0 - smoothstep(len * 0.95, len * 1.25, az));
+                    float fade = pow(2.0 / max(az, 2.0), 0.6) * (1.0 - smoothstep(len * 0.9, len * 1.35, az));
                     blob *= 3.0 * fade;
                     density = lerp(density, blob, knotWeight);
                     gas = lerp(gas, blob * 0.5, knotWeight);   // glowing plasma: they hide little behind them
@@ -585,8 +629,18 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     hot = lerp(hot, tint * (lum / max(dot(tint, float3(0.2126, 0.7152, 0.0722)), 1e-4)), _KSPVE_BHTint.x);
                 }
                 float partBrightness = lerp(_KSPVE_BHTint.y, _KSPVE_BHTint.z, span);
+                if (_KSPVE_TexInfo.x > 0.5)
+                {
+                    float texR;
+                    float3 texPd = ToDiskFrame(x, texR);
+                    float4 tx = TexAt(texPd.xy, texR, inner, _KSPVE_BHDisk.y);
+                    hot = TexColor(hot, tx);
+                    density *= TexShape(tx);
+                }
                 float shade = 0.3 + 0.7 * lightTransmittance;
-                float3 thermal = hot * (pow(temperature / peak, 3.0) * EmissionStrength * (0.6 + 1.4 * knots) * shade * exposure);
+                // diskEvenness (display): the cooler outer disk shown as bright as the hottest part, keeping its clumps.
+                float glowFall = lerp(pow(temperature / peak, 3.0), pow(temperature / max(DiskTemperature(r, inner, peak), 1.0), 3.0), _KSPVE_BHStreak.w);
+                float3 thermal = hot * (glowFall * EmissionStrength * (0.6 + 1.4 * knots) * shade * exposure);
                 float3 lightColor = outerLit > 0.0 ? lerp(hot, Saturate(Blackbody(peak * 0.8)), min(outerLit, 1.0)) : hot;
                 float3 scattered = lightColor * (incident * lightTransmittance * phase * 0.4);
                 color += transmittance * (thermal + scattered) * (_KSPVE_BHForm.y * beaming * density * lane * dt * partBrightness);
@@ -824,6 +878,230 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 return limit;
             }
 
+            // --- mass transfer from a companion (KSPVE.Pure.Space.RocheStream) -----------------------------------------
+            #define STREAM_POINTS 25
+            float4 _KSPVE_Stream[STREAM_POINTS];   // the falling stream from inside the star (first), L1 (second), to where it strikes (last): xyz, w half-width (these units)
+            float4 _KSPVE_StreamSpiral;    // its winding on in round the hole (RocheStream.StreamSpiral): x from this radius, y in to this, z through this angle (radians; 0 = none), w from this angle
+            float4 _KSPVE_StreamSpiral2;   // x: the way round (+1 towards the frame's y), y: its half-width at the start, z: at the end, w: the falling stream's length
+            float4 _KSPVE_StreamFrame;     // xyz: the binary's x (from the hole towards the companion); its y is the orbit axis cross this
+            float4 _KSPVE_StreamLook;      // x: how flat it spreads (width over thickness), y: opacity, z: flow lines 0..1, w: their fineness
+            float4 _KSPVE_StreamLook2;     // x: how ragged its edge is, y: how its winding closes in (exponent), z: how hard the star's surface is pulled 0..1, w: points of a winding drawn by hand (0 = computed)
+            float4 _KSPVE_StreamLook3;     // x: how much brighter it grows as it falls
+            #define STREAM_DRAWN 64
+            float4 _KSPVE_StreamDrawn[STREAM_DRAWN];   // its winding drawn by hand, on from where it strikes: xyz, w half-width
+            float4 _KSPVE_StreamInfo;      // x: points (0 = no companion), y: brightness, z: hot spot, w: radius of the sphere holding it
+            float4 _KSPVE_StreamCenter;    // xyz: that sphere's centre
+            float4 _KSPVE_StreamColor;     // rgb
+            float4 _KSPVE_StreamImpact;    // xyz: where it strikes the disk, w: its width there; past that (turns) it winds on, fading
+            float4 _KSPVE_StreamInfo2;     // x: where along it (0..1) it strikes
+            float4 _KSPVE_Companion;       // xyz: a companion star the shader draws (none from a planet pack), w: the sphere holding it (0 = none)
+            float4 _KSPVE_CompanionLook;   // x: its temperature (K), y: brightness, z: starspots 0..1, w: the glare round it
+            float4 _KSPVE_CompanionLobe;   // x: mass ratio when it fills its Roche lobe (0 = a sphere), y: L1 from the hole (fraction of the separation), z: the potential there, w: its radius (a sphere of its volume)
+            float4 _KSPVE_CompanionAxis;   // xyz: the binary's orbit axis
+
+            // The drawn companion's surface at unit normal n seen along vn: limb-darkened, granulated, cooler at the limb.
+            float3 CompanionSurface(float3 n, float3 vn)
+            {
+                float mu = max(dot(n, -vn), 0.0), edge = 1.0 - mu;
+                float limb = 1.0 - 0.6 * edge - 0.2 * edge * edge;
+                float granules = 0.84 + 0.32 * Fbm(n * 22.0 + _KSPVE_BHLook.w * 0.01);
+                granules *= 1.0 - 0.8 * _KSPVE_CompanionLook.z * smoothstep(0.68, 0.74, Fbm(n * 7.0 + 3.3));   // a few small, round dark starspots
+                float3 c = SaturateBy(Blackbody(_KSPVE_CompanionLook.x), 1.5);
+                float3 cool = SaturateBy(Blackbody(_KSPVE_CompanionLook.x * 0.8), 1.5);
+                c /= max(dot(c, Luma), 1e-4);
+                cool /= max(dot(cool, Luma), 1e-4);
+                if (_KSPVE_StreamInfo.x > 0.0)
+                {
+                    // Being pulled off: towards the hole its gas is drawn out into flow lines converging on the point the
+                    // stream leaves from, in the stream's colour.
+                    float3 toHole = -normalize(_KSPVE_Companion.xyz);
+                    float tip = dot(n, toHole);
+                    float pull = smoothstep(0.2, 0.9, tip) * _KSPVE_StreamLook2.z;
+                    float3 e2 = normalize(cross(toHole, abs(toHole.y) < 0.9 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0))), e3 = cross(toHole, e2);
+                    float around = atan2(dot(n, e2), dot(n, e3));
+                    float lines = 0.55 + 0.9 * Noise3(float3(cos(around) * 9.0, sin(around) * 9.0, acos(saturate(tip)) * 1.5 - _KSPVE_BHLook.w * 0.3));
+                    granules = lerp(granules, lines, pull);
+                    float3 sc = _KSPVE_StreamColor.rgb / max(dot(_KSPVE_StreamColor.rgb, Luma), 1e-4);
+                    c = lerp(c, sc, 0.6 * pull);
+                    cool = lerp(cool, sc, 0.6 * pull);
+                }
+                // Its own brightness, whatever the disk's: the march's light is scaled by the hole's brightness before tone mapping.
+                return lerp(c, cool, edge * 0.6) * (limb * granules * 2.0 * _KSPVE_CompanionLook.y / max(_KSPVE_BHLook.y, 1e-3));
+            }
+
+            // Whether x is inside the drawn companion, its surface's outward normal there, and how far a step may go without
+            // missing it. A sphere; or, filling its Roche lobe, the region round it below the potential at L1, drawn out to a
+            // point there (RocheStream.Potential, rotating frame, G = M = a = Omega = 1).
+            bool InCompanion(float3 x, out float3 normal, out float dist)
+            {
+                float3 dc = x - _KSPVE_Companion.xyz;
+                float dcl = length(dc);
+                float R = _KSPVE_Companion.w;
+                normal = dc / max(dcl, 1e-6);
+                dist = max(dcl - R, 0.02 * R) + 0.001;
+                if (dcl >= R) return false;
+                if (_KSPVE_CompanionLobe.x <= 0.0) return true;
+                float a = length(_KSPVE_Companion.xyz);
+                float3 ex = _KSPVE_Companion.xyz / a, ez = _KSPVE_CompanionAxis.xyz, ey = cross(ez, ex);
+                float3 p = float3(dot(x, ex), dot(x, ey), dot(x, ez)) / a;   // the hole at 0, the companion at (1, 0, 0)
+                float q = _KSPVE_CompanionLobe.x, m1 = 1.0 / (1.0 + q), m2 = q / (1.0 + q);
+                float3 d2 = p - float3(1.0, 0.0, 0.0), c = float3(p.x - m2, p.y, 0.0);
+                float r1 = max(length(p), 1e-6), r2 = max(length(d2), 1e-6);
+                float3 g = p * (m1 / (r1 * r1 * r1)) + d2 * (m2 / (r2 * r2 * r2)) - c;
+                float excess = -m1 / r1 - m2 / r2 - 0.5 * dot(c, c) - _KSPVE_CompanionLobe.z;
+                normal = normalize(ex * g.x + ey * g.y + ez * g.z);
+                // The potential's own distance estimate, in fine steps by the saddle at L1.
+                float Req = _KSPVE_CompanionLobe.w;
+                dist = clamp(0.8 * excess / max(length(g), 1e-4) * a, 0.004 * Req, 0.1 * Req);
+                return excess < 0.0 && p.x > _KSPVE_CompanionLobe.y;
+            }
+
+            // The glare round the drawn companion, per unit length at distance d from its centre (radius R).
+            float3 CompanionGlare(float d)
+            {
+                float R = _KSPVE_CompanionLobe.w;
+                if (R <= 0.0 || _KSPVE_CompanionLook.w <= 0.0 || d < R) return 0.0;
+                float3 c = SaturateBy(Blackbody(_KSPVE_CompanionLook.x * 1.3), 1.6);
+                c /= max(dot(c, Luma), 1e-4);
+                float h = (d - R) / R;
+                return c * (_KSPVE_CompanionLook.w * (0.5 * exp(-h / 0.08) + 0.02 * exp(-h / 0.5)) / R / max(_KSPVE_BHLook.y, 1e-3));
+            }
+
+            // The stream's glow per unit optical depth (how opaque it is: streamOpacity).
+            static const float StreamSurface = 1.2;
+
+            // The stream at x: dense gas, opaque, with a ragged edge, flattening into a band as it falls and widening, hotter
+            // (brighter) the further it has fallen (tubeK its extinction per unit length, tubeColor its glow per unit optical
+            // depth); and returned, the glow per unit length where it leaves L1 and at the hot spot where it strikes. Past that
+            // it winds on in round the hole, as worked out (RocheStream.StreamSpiral) or as drawn by hand. limit: the longest
+            // step that cannot skip it.
+            float3 StreamSample(float3 x, float fp, out float limit, out float tubeK, out float3 tubeColor)
+            {
+                limit = 1e9;
+                tubeK = 0.0;
+                tubeColor = 0.0;
+                int count = (int)_KSPVE_StreamInfo.x;
+                if (count < 2) return 0.0;
+                float reach = length(x - _KSPVE_StreamCenter.xyz) - _KSPVE_StreamInfo.w;
+                if (reach > 0.0)
+                {
+                    limit = max(reach, _KSPVE_Stream[0].w);
+                    return 0.0;
+                }
+                float3 ez = _KSPVE_CompanionAxis.xyz;
+                float flatness = _KSPVE_StreamLook.x;
+                float best = 1e9, bestU = 0.0, bestW = 1.0, bestD = 1e9, bestS = 0.0, arc = 0.0, bestTrue = 1e9, bestFlat = 1.0;
+                float3 bestO = 0.0, bestDir = float3(1.0, 0.0, 0.0);
+                bool wound = false;
+                // Falling: round as it leaves the star, spreading flat as it nears where it strikes.
+                [loop] for (int s = 0; s + 1 < count; s++)
+                {
+                    float4 a = _KSPVE_Stream[s], b = _KSPVE_Stream[s + 1];
+                    float3 ab = b.xyz - a.xyz;
+                    float t = saturate(dot(x - a.xyz, ab) / max(dot(ab, ab), 1e-12));
+                    float3 o = x - (a.xyz + ab * t);
+                    float uu = (s + t) / (count - 1.0);
+                    float squash = lerp(1.0, flatness, smoothstep(0.3, 1.0, uu));
+                    float3 band = o + ez * (dot(o, ez) * (squash - 1.0));
+                    float d = length(band);
+                    float w = lerp(a.w, b.w, t);
+                    float len = length(ab);
+                    if (d / w < best) { best = d / w; bestD = d; bestTrue = length(o); bestW = w; bestU = uu; bestS = arc + t * len; bestO = band; bestDir = ab; bestFlat = squash; }
+                    arc += len;
+                }
+                // Winding on in round the hole: for each winding the point's angle could be on, the spiral's radius there.
+                float turnsAngle = _KSPVE_StreamSpiral.z;
+                if (turnsAngle > 0.0)
+                {
+                    float3 ex = _KSPVE_StreamFrame.xyz, ey = cross(ez, ex);
+                    float px = dot(x, ex), py = dot(x, ey), h = dot(x, ez);
+                    float rr = max(sqrt(px * px + py * py), 1e-6);
+                    float sense = _KSPVE_StreamSpiral2.x;
+                    float delta = frac(sense * (atan2(py, px) - _KSPVE_StreamSpiral.w) / (2.0 * UNITY_PI)) * 2.0 * UNITY_PI;
+                    float3 radial = (ex * px + ey * py) / rr;
+                    [loop] for (int k = 0; k < 17; k++)
+                    {
+                        float th = delta + 2.0 * UNITY_PI * k;
+                        bool atEnd = th >= turnsAngle;
+                        th = min(th, turnsAngle);   // past its end: its rounded end
+                        float f = th / turnsAngle;
+                        float ringR = _KSPVE_StreamSpiral.y + (_KSPVE_StreamSpiral.x - _KSPVE_StreamSpiral.y) * pow(max(1.0 - f, 0.0), _KSPVE_StreamLook2.y);
+                        float w = lerp(_KSPVE_StreamSpiral2.y, _KSPVE_StreamSpiral2.z, f);
+                        float3 o = radial * (rr - ringR) + ez * h;
+                        if (atEnd) o = x - (ex * (ringR * cos(_KSPVE_StreamSpiral.w + sense * th)) + ey * (ringR * sin(_KSPVE_StreamSpiral.w + sense * th)));
+                        float3 band = o + ez * (dot(o, ez) * (flatness - 1.0));   // a flat band: thinner out of the plane
+                        float d = length(band);
+                        if (d / w < best)
+                        {
+                            best = d / w; bestD = d; bestTrue = length(o); bestW = w; bestO = band; wound = true; bestFlat = flatness;
+                            bestS = _KSPVE_StreamSpiral2.w + th * 0.5 * (_KSPVE_StreamSpiral.x + ringR);
+                            bestDir = cross(ez, radial) * sense;
+                        }
+                        if (atEnd) break;
+                    }
+                }
+                // Or winding on as drawn by hand, from where it strikes.
+                int drawn = (int)_KSPVE_StreamLook2.w;
+                if (drawn >= 2)
+                {
+                    float4 prev = _KSPVE_StreamImpact;
+                    float drawnArc = _KSPVE_StreamSpiral2.w;
+                    [loop] for (int j = 0; j < drawn; j++)
+                    {
+                        float4 b = _KSPVE_StreamDrawn[j];
+                        float3 ab = b.xyz - prev.xyz;
+                        float t = saturate(dot(x - prev.xyz, ab) / max(dot(ab, ab), 1e-12));
+                        float3 o = x - (prev.xyz + ab * t);
+                        float3 band = o + ez * (dot(o, ez) * (flatness - 1.0));
+                        float d = length(band);
+                        float w = lerp(prev.w, b.w, t);
+                        float len = length(ab);
+                        if (d / w < best) { best = d / w; bestD = d; bestTrue = length(o); bestW = w; bestO = band; bestDir = ab; bestS = drawnArc + t * len; wound = true; bestFlat = flatness; }
+                        drawnArc += len;
+                        prev = b;
+                    }
+                }
+                float ww = sqrt(bestW * bestW + fp * fp);   // never thinner than a pixel, its light kept
+                limit = max(bestTrue - 2.5 * ww, 0.3 * ww / bestFlat);
+                float time = _KSPVE_BHLook.w;
+                // Where across it x is (in its widths: in the orbit's plane and out of it), and how far along it (in its widths), so
+                // its texture is drawn out along the flow: fine flow lines, gas being pulled along, not billowing cloud.
+                float3 flowDir = normalize(bestDir + 1e-6);
+                float3 sideDir = normalize(cross(ez, flowDir) + 1e-6);
+                float2 across = float2(dot(bestO, sideDir), dot(bestO, ez)) / ww;
+                float along = bestS / ww;
+                float fine = _KSPVE_StreamLook.w;
+                float turb = lerp(1.0, 0.25 + 1.5 * smoothstep(0.3, 0.7, Fbm(float3(along * 0.25 * fine - time * 0.6, across * 3.0 * fine))), _KSPVE_StreamLook.z);
+                // Hotter (brighter) the further it has fallen; past where it strikes it carries on, one continuous stream, winding
+                // in round the hole.
+                float impactU = max(_KSPVE_StreamInfo2.x, 1e-3);
+                float fallen = wound ? 1.0 : min(bestU / impactU, 1.0);
+                float heat = 1.0 + _KSPVE_StreamLook3.x * fallen * fallen;
+                // Its edge frays into the flow lines; thinner than a pixel it fades rather than growing.
+                float fluff = Fbm(float3(along * 0.12 * fine - time * 0.6, across * 1.2 * fine) + 4.1);
+                float body = 1.0 - smoothstep(0.55, 1.15, bestD / ww + _KSPVE_StreamLook2.x * (fluff - 0.5));
+                tubeK = _KSPVE_StreamLook.y * body * (bestW / ww) / ww * bestFlat;   // a band as much gas as the tube
+                tubeColor = _KSPVE_StreamColor.rgb * (_KSPVE_StreamInfo.y * heat * turb * StreamSurface);
+                float3 emit = 0.0;
+                // Where it leaves L1, and the hot spot where it strikes the disk.
+                float4 first = _KSPVE_Stream[1], last = _KSPVE_StreamImpact;
+                float r0 = 2.0 * first.w, rs = 1.5 * last.w;
+                float r0p = sqrt(r0 * r0 + fp * fp), rsp = sqrt(rs * rs + fp * fp);
+                emit += _KSPVE_StreamColor.rgb * (_KSPVE_StreamInfo.y * 0.1 * exp(-dot(x - first.xyz, x - first.xyz) / (r0p * r0p)) / r0p);
+                emit += float3(0.85, 0.92, 1.0) * (_KSPVE_StreamInfo.z * 0.15 * exp(-dot(x - last.xyz, x - last.xyz) / (rsp * rsp)) * (rs * rs) / (rsp * rsp) / rs);
+                limit = min(limit, max(length(x - last.xyz) - 3.0 * rsp, 0.3 * rsp));
+                return emit;
+            }
+
+            // A step through the stream (StreamSample): its tube, exact for a uniform step since it is often opaque, and the
+            // glows round it.
+            void AddStream(float3 glow, float tubeK, float3 tubeColor, float dt, inout float3 color, inout float transmittance)
+            {
+                float a = 1.0 - exp(-tubeK * dt);
+                color += transmittance * (tubeColor * a + glow * dt);
+                transmittance *= 1.0 - a;
+            }
+
             float4 fragMarch(v2f i) : SV_Target
             {
                 float2 ndc = i.ndc;
@@ -892,6 +1170,14 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     float r = length(x);
                     rMin = min(rMin, r);
                     if (r < 1.0) { captured = !pulsar; break; }
+                    float3 starNormal;
+                    float starStep = 1e9;
+                    if (_KSPVE_Companion.w > 0.0 && InCompanion(x, starNormal, starStep))
+                    {
+                        color += transmittance * CompanionSurface(starNormal, normalize(v));
+                        transmittance = 0.0;   // a star: nothing behind it shows
+                        break;
+                    }
                     if (r > bound * 1.001 && dot(x, v) > 0.0) break;
                     if (traveled > sceneDistance) break;
 
@@ -905,15 +1191,20 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     // Fine steps inside the disk layer: about three per clump out where the clumps are big.
                     if (nearPlane < 5.0 * _KSPVE_BHDisk.z * r && r < _KSPVE_BHDisk.y * 1.2) dt = min(dt, 0.2 * grain * min(grain, 3.0));
                     float alongJet = abs(dot(x, _KSPVE_BHJetAxis.xyz));
-                    if (_KSPVE_BHJet.x > 0.0 && alongJet > 1.1 * (1.0 - _KSPVE_BHJet2.x) && alongJet < _KSPVE_BHJet.y * (_KSPVE_BHJetKnots.x > 0.0 ? 1.25 : 1.0))   // and inside the jets
+                    if (_KSPVE_BHJet.x > 0.0 && alongJet > 1.1 * (1.0 - _KSPVE_BHJet2.x) && alongJet < _KSPVE_BHJet.y * (_KSPVE_BHJetKnots.x > 0.0 ? 1.6 : 1.0))   // and inside the jets
                     {
                         float jetR = _KSPVE_BHJet.z * pow(alongJet + JetBase * _KSPVE_BHJet2.x, 0.55);
                         if (length(x - dot(x, _KSPVE_BHJetAxis.xyz) * _KSPVE_BHJetAxis.xyz) < (_KSPVE_BHJetKnots.x > 0.0 ? 7.0 : 3.0) * jetR)
-                            dt = min(dt, (0.35 - 0.15 * _KSPVE_BHJet2.x) * jetR);
+                            dt = min(dt, (_KSPVE_BHJetKnots.x > 0.0 ? 0.12 : 0.35 - 0.15 * _KSPVE_BHJet2.x - 0.12 * saturate((_KSPVE_BHJet3.y - 1.0) / 5.0)) * jetR);   // blobs' thin shells and fine threads need finer steps
                     }
                     float tdeK = 0.0, envK = 0.0;
                     float3 tdeEmit = 0.0, tdeGlow = 0.0, envEmit = 0.0;
                     if (tde) dt = min(dt, max(TdeSample(x, normalize(v), traveled, tdeK, tdeEmit, tdeGlow, envK, envEmit), 0.0005));
+                    float streamLimit, streamK;
+                    float3 streamColor;
+                    float3 streamGlow = StreamSample(x, traveled * _KSPVE_BHOptions.y, streamLimit, streamK, streamColor);
+                    dt = min(dt, max(streamLimit, 0.0005));
+                    if (_KSPVE_Companion.w > 0.0) dt = min(dt, starStep);
                     if (k == 0) dt *= jitter; // per-pixel start offset turns step banding into fine grain
                     dt = min(dt, max(sceneDistance - traveled, 1e-5));   // stop at the surface of whatever is in front
                     if (envK > 0.0)
@@ -928,6 +1219,8 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     color += transmittance * glowColor * (_KSPVE_BHExtra.y * (1.0 - StreakGlowDim * _KSPVE_BHStreak.x) * 0.03 * exp(-(r - 1.0) / 2.2)) * dt;
                     if (!pulsar) AccumulateDisk(x, v, dt, traveled, color, transmittance);
                     AccumulateJets(x, v, dt, color, transmittance);
+                    AddStream(streamGlow, streamK, streamColor, dt, color, transmittance);   // the companion's stream onto the disk
+                    color += transmittance * CompanionGlare(length(x - _KSPVE_Companion.xyz)) * dt;
                     if (tdeK > 0.0 || any(tdeGlow > 0.0))
                     {
                         // Exact for a uniform slab: the event's gas is often far too opaque for emission * dt.
@@ -993,19 +1286,6 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 return c / max(dot(c, float3(0.2126, 0.7152, 0.0722)), 1e-4);
             }
 
-            // The gaps planets clear (DiskGaps: spread over the disk, or placed one by one); they cut a belt's rocks too.
-            float GapFactor(float r)
-            {
-                float gaps = 1.0;
-                int gapCount = (int)_KSPVE_ObjShape.y;
-                [loop] for (int k = 0; k < 16; k++)
-                {
-                    if (k >= gapCount) break;
-                    float4 gap = _KSPVE_ObjGaps[k];
-                    gaps *= 1.0 - gap.z * exp(-Sq((r - gap.x) / gap.y));
-                }
-                return gaps;
-            }
 
             // Dust density of a protoplanetary or debris disk (or an asteroid belt's dust) at x. Protoplanetary: flared
             // (thicker further out), its density falling outward, cut by gaps where planets clear their orbits. Debris: one
@@ -1060,6 +1340,12 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float illum = pow(outer / max(d, inner * 0.5), _KSPVE_ObjDust.y);
                 float phase = 0.25 + 0.75 * PhaseHG(dot(x / d, -vn), _KSPVE_ObjDisk3.x) * 0.5;
                 float3 dustColor = lerp(_KSPVE_ObjDustColor.rgb, _KSPVE_ObjOuterDust.rgb, saturate((r - inner) / max(outer - inner, 1e-6)));
+                if (_KSPVE_TexInfo.x > 0.5)
+                {
+                    float4 tx = TexAt(pd.xy, r, inner, outer);
+                    dustColor = TexColor(dustColor, tx);
+                    rho *= TexShape(tx);
+                }
                 float3 scattered = dustColor * StarLight(_KSPVE_ObjKind.z) * (illum * lightT * phase);
                 float3 rim = Blackbody(_KSPVE_ObjDisk3.z) * (_KSPVE_ObjDisk3.y * smoothstep(inner * 1.8, inner * 0.9, r));
                 color += transmittance * (scattered + rim) * (rho * dt);
@@ -1144,21 +1430,24 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float3 pd = ToDiskFrame(x, unusedR);
                 // Stretched along the normal and warped twice, so it isn't a ball.
                 float3 xs = float3(pd.x * 0.75, pd.z * 0.75 * _KSPVE_ObjCloud2.x, pd.y);
+                // Its ragged outline first: outside it nothing else needs working out.
+                float edge = (1.0 - smoothstep(2.0, 11.5, length(xs) * (0.3 + _KSPVE_ObjCloud2.y * Fbm(pd * 0.12 + 6.6))))
+                    * (1.0 - smoothstep(NebulaRadius, 1.3 * NebulaRadius, length(x)));
+                if (edge <= 0.0) return;
                 float3 q = xs * (0.22 * _KSPVE_ObjCloud.y) + float3(0.0, _KSPVE_BHLook.w * 0.002, 0.0);
                 float3 w = float3(Fbm(q + 1.7), Fbm(q + 9.2), Fbm(q + 4.3)) - 0.5;
                 float3 p = q + w * (2.2 * _KSPVE_ObjCloud.z);
                 float3 w2 = float3(Noise3(p * 2.1 + 5.5), Noise3(p * 2.1 + 8.8), Noise3(p * 2.1 + 2.2)) - 0.5;
                 p += w2 * (0.45 * _KSPVE_ObjCloud.z);
-                float edge = (1.0 - smoothstep(2.0, 11.5, length(xs) * (0.3 + _KSPVE_ObjCloud2.y * Fbm(pd * 0.12 + 6.6))))
-                    * (1.0 - smoothstep(NebulaRadius, 1.3 * NebulaRadius, length(x)));
-                // A planetary nebula's shell: the gas piled into a hollow, ragged shell.
+                // A planetary nebula's shell (or a supernova remnant's): the gas piled into a hollow, ragged shell.
+                float shellAmount = (int)(_KSPVE_ObjCloud2.w + 0.5) == 3 ? 1.0 : _KSPVE_ObjExtra.x;
                 float shell = (length(xs) / NebulaRadius) * (0.85 + 0.3 * Fbm(p * 0.5 + 1.1));
-                edge *= 1.0 + _KSPVE_ObjExtra.x * (4.0 * exp(-Sq((shell - 0.55) / 0.06)) - 1.0);
+                edge *= 1.0 + shellAmount * (4.0 * exp(-Sq((shell - 0.55) / 0.06)) - 1.0);
                 if (edge <= 0.0) return;
                 float n = Fbm(p);
                 gas = edge * pow(max(n * 2.1 - _KSPVE_ObjCloud2.z, 0.0), 2.0) * _KSPVE_ObjDust.x;
                 mix = smoothstep(0.25, 0.75, Fbm(p * 0.7 + 7.7));
-                mix = lerp(mix, smoothstep(0.45, 0.62, shell), _KSPVE_ObjExtra.x);   // a shell: one gas inside, the other outside (O III, H-alpha)
+                mix = lerp(mix, smoothstep(0.45, 0.62, shell), shellAmount);   // a shell: one gas inside, the other outside (O III, H-alpha)
                 // Filaments: ridges of two octaves, thin and bright where the gas is.
                 float ridge1 = 1.0 - abs(2.0 * Noise3(p * 2.6 + 2.2) - 1.0);
                 float ridge2 = 1.0 - abs(2.0 * Noise3(p * 6.1 + 4.4) - 1.0);
@@ -1224,6 +1513,8 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float unusedR;
                 float3 pd = ToDiskFrame(x, unusedR);
                 float irregular = _KSPVE_ObjCloud.z;
+                float hz0 = max(_KSPVE_BHDisk.z, 1e-3) * R;
+                if (abs(pd.z) > 7.0 * hz0 && length(pd) > (4.0 * _KSPVE_ObjGalaxy.x + _KSPVE_ObjGalaxy.z) * R + 2.0 * irregular) return;
                 if (irregular > 0.0)
                     pd.xy += (float2(Fbm(pd * 0.15 + 1.7), Fbm(pd * 0.15 + 9.2)) - 0.5) * (4.0 * irregular);
                 float r = length(pd.xy), z = pd.z;
@@ -1260,6 +1551,13 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 // Dust: in a thinner layer, in lanes along the arms (or smooth with none).
                 float dustLayer = exp(-abs(z) / (0.5 * hz)) * exp(-r / (0.4 * R)) * (1.0 - smoothstep(0.8 * R, 1.1 * R, r));
                 absorb = _KSPVE_ObjCloud.x * dustLayer * (arms > 0.0 ? 0.25 + lane : 0.6) * (0.5 + Fbm(pd * 2.5 + 7.7)) * 8.0 / hz;
+                if (_KSPVE_TexInfo.x > 0.5)
+                {
+                    float4 tx = TexAt(pd.xy, r, 0.0, R);
+                    float shape = TexShape(tx);
+                    emit = TexColor(emit, tx) * shape;
+                    absorb *= shape;
+                }
             }
 
             // A frame round the neutron star's magnetic axis.
@@ -1388,12 +1686,45 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                 float frontTransmittance = 1.0;
                 int maxSteps = (int)_KSPVE_BHRay.z;
                 float jitter = 0.2 + 0.8 * frac(sin(dot(i.pos.xy, float2(12.9898, 78.233))) * 43758.5453);
+                // A thin disk or galaxy seen along a straight ray: march only through the slab it fills (above and below it
+                // there is nothing, unless field lines, a star's glow or a stream reach out of it).
+                float slabEnd = 1e30;
+                bool dusty = kind == KIND_PROTO || kind == KIND_DEBRIS || kind == KIND_BELT;
+                if (bend <= 0.0 && _KSPVE_ObjNeutron.x <= 0.0 && _KSPVE_StreamInfo.x < 2.0
+                    && ((dusty && (kind != KIND_PROTO || _KSPVE_ObjDust.z <= 0.0)) || kind == KIND_GALAXY))
+                {
+                    float soft = _KSPVE_ObjDisk2.y, reach = 1.0 + 0.1 * soft;
+                    float H = dusty
+                        ? 4.0 * thick * outer * reach * pow(reach, _KSPVE_ObjShape.x) * max(1.0, _KSPVE_ObjDisk3.w)
+                        : max(6.0 * max(thick, 1e-3) * NebulaRadius, (4.0 * _KSPVE_ObjGalaxy.x + _KSPVE_ObjGalaxy.z) * NebulaRadius);
+                    float z0 = dot(x, _KSPVE_BHNormal.xyz), dz = dot(v, _KSPVE_BHNormal.xyz);
+                    float tLo = 0.0, tHi = 2.0 * bound;
+                    if (abs(dz) > 1e-7)
+                    {
+                        float ta = (-H - z0) / dz, tb = (H - z0) / dz;
+                        tLo = max(min(ta, tb), 0.0);
+                        tHi = max(ta, tb);
+                    }
+                    else if (abs(z0) > H) return 0;
+                    if (tHi <= tLo || tLo > 2.0 * bound) return 0;
+                    x += v * tLo;
+                    traveled += tLo;
+                    slabEnd = traveled + (tHi - tLo);
+                }
                 [loop] for (int k = 0; k < maxSteps; k++)
                 {
                     float r = length(x);
                     if (r > bound * 1.001 && dot(x, v) > 0.0) break;
                     if (!reachedHole && r < holeReach) { reachedHole = true; frontTransmittance = transmittance; }
-                    if (traveled > sceneDistance) break;
+                    if (traveled > sceneDistance || traveled > slabEnd) break;
+                    float3 starNormal;
+                    float starStep = 1e9;
+                    if (_KSPVE_Companion.w > 0.0 && InCompanion(x, starNormal, starStep))
+                    {
+                        color += transmittance * CompanionSurface(starNormal, normalize(v));
+                        solid = true;
+                        break;
+                    }
                     if (r < starR)
                     {
                         if (neutron)
@@ -1432,12 +1763,18 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     if (!neutron && _KSPVE_ObjNeutron.x > 0.0 && r < starR * FieldShellStart * pow(FieldShellRatio, FieldShells - 1.0) * 1.1)
                         dt = min(dt, max(0.05 * r, 0.05 * starR));   // and through the field lines
                     if (hole > 0.0 && !neutron) dt = min(dt, max(0.08 * r, 0.02 * hole));   // short steps where the hole bends the rays
+                    float streamLimit = 1e9, streamK = 0.0;
+                    float3 streamColor = 0.0;
+                    float3 streamGlow = neutron ? StreamSample(x, fp, streamLimit, streamK, streamColor) : 0.0;
+                    dt = min(dt, max(streamLimit, 0.0005));
+                    if (_KSPVE_Companion.w > 0.0) dt = min(dt, starStep);
                     if (k == 0) dt *= jitter;
                     dt = min(dt, max(sceneDistance - traveled, 1e-5));
 
                     if (neutron)
                     {
                         AccumulateDisk(x, v, dt, traveled, color, transmittance);
+                        AddStream(streamGlow, streamK, streamColor, dt, color, transmittance);   // the companion's stream onto the disk
                         AccumulateColumns(x, dt, color, transmittance);
                         AccumulateFieldLines(x, dt, fp, color, transmittance);
                         AccumulateBeams(x, dt, color, transmittance);
@@ -1446,9 +1783,55 @@ Shader "Hidden/KSPVE/Space/BlackHole"
                     {
                         float gas, mix, filament, dust;
                         Nebula(x, gas, mix, filament, dust);
-                        float3 glowGas = lerp(_KSPVE_ObjColorA.rgb, _KSPVE_ObjColorB.rgb, mix) * gas + _KSPVE_ObjColorA.rgb * (filament * 0.8);
-                        color += transmittance * glowGas * dt;
-                        transmittance *= exp(-(gas * 0.12 + dust * 1.6) * dt);
+                        float3 tint = lerp(_KSPVE_ObjColorA.rgb, _KSPVE_ObjColorB.rgb, mix);
+                        if (_KSPVE_TexInfo.x > 0.5)
+                        {
+                            // Top-down: the image seen along the normal across the cloud; ramp: its colours from one gas to the other.
+                            float texR;
+                            float3 texPd = ToDiskFrame(x, texR);
+                            float4 tx = _KSPVE_TexInfo.x < 1.5 ? TexAt(texPd.xy, texR, 0.0, NebulaRadius) : tex2Dlod(_KSPVE_Tex, float4(mix, 0.5, 0.0, 0.0));
+                            tint = lerp(tint, tx.rgb, _KSPVE_TexInfo.y);
+                            float shape = TexShape(tx);
+                            gas *= shape;
+                            filament *= shape;
+                        }
+                        float3 emit;
+                        float absorb;
+                        int gasType = (int)(_KSPVE_ObjCloud2.w + 0.5);
+                        if (gasType == 1)
+                        {
+                            // Reflection: dust lit by the star at its centre, scattering its light (bluer than the star).
+                            float d = length(x);
+                            float lit = 1.0 / (1.0 + Sq(d / (0.35 * NebulaRadius)));
+                            emit = _KSPVE_ObjColorB.rgb * StarLight(_KSPVE_ObjKind.z) * (gas * 1.5 * lit) + _KSPVE_ObjColorA.rgb * (filament * 0.2);
+                            absorb = gas * 0.25 + dust * 1.6;
+                        }
+                        else if (gasType == 2)
+                        {
+                            // Dark: a cloud of dust, black against what is behind, its edges faintly lit.
+                            emit = _KSPVE_ObjColorA.rgb * (gas * 0.03 + filament * 0.05);
+                            absorb = gas * 2.5 + dust * 3.0;
+                        }
+                        else if (gasType == 3)
+                        {
+                            // Supernova remnant: a web of glowing filaments in the shell, little gas between them.
+                            emit = tint * (filament * 2.5 + gas * 0.15);
+                            absorb = dust * 0.5;
+                        }
+                        else if (gasType == 4)
+                        {
+                            // Pillars: glowing gas carved into dark pillars of dust, their edges lit bright.
+                            float rim = saturate(dust * 4.0) * (1.0 - saturate(dust * 1.5));
+                            emit = _KSPVE_ObjColorA.rgb * gas + _KSPVE_ObjColorB.rgb * (rim * 2.5 * (0.3 + gas)) + _KSPVE_ObjColorA.rgb * (filament * 0.6);
+                            absorb = dust * 4.0 + gas * 0.1;
+                        }
+                        else
+                        {
+                            emit = tint * gas + _KSPVE_ObjColorA.rgb * (filament * 0.8);
+                            absorb = gas * 0.12 + dust * 1.6;
+                        }
+                        color += transmittance * emit * dt;
+                        transmittance *= exp(-absorb * dt);
                         AccumulateStarGlow(x, dt, color, transmittance);   // a star inside, lighting it
                     }
                     else if (kind == KIND_COMET)

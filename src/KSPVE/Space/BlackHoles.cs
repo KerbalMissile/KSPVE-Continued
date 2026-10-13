@@ -38,12 +38,27 @@ internal sealed class BlackHoleDefinition
     public double DiskInner, DiskOuter, DiskThickness;
     public double PeakTemperature, Brightness, RotationSpeed, Turbulence, Spin;
     /// <summary>0..1: the disk drawn as swirling streaks when seen from above (BlackHoleSettings.StreakView).</summary>
-    public double DiskStreaks;
+    public double DiskStreaks, StreaksFrom, StreaksFull;
     /// <summary>Display aid: the disk beyond 20 horizon radii shown as if exposed for it (BlackHoleSettings.OuterGlow).</summary>
     public double OuterGlow;
+    /// <summary>0..1: the disk's outer edge from wispy to crisp.</summary>
+    public double DiskEdge;
+    /// <summary>0..1 (display): the disk from dimming outward as it cools to evenly bright.</summary>
+    public double DiskEvenness;
     public double ColorSaturation, Glow, PhotonRing, Particles, Debris;
     public double Jets, JetLength, JetWidth, JetSpeed, JetSpiral, JetTurns, JetFlow, JetAbsorb;
-    public double JetKnots, JetKnotStart, JetKnotSpacing, JetKnotGrowth;
+    public double JetKnots, JetKnotStart, JetKnotSpacing, JetKnotGrowth, JetStrands, JetStrandSharpness;
+    // Mass transfer from a companion; a nebula's gas; a custom texture.
+    public string Companion, Texture;
+    public double StreamBrightness, StreamWidth, HotSpot, TextureStrength, TextureShape;
+    public double CompanionSpots, CompanionGlare;
+    public double CompanionDistance, CompanionAngle, CompanionHeight, CompanionRadius, CompanionTemperature, CompanionBrightness, CompanionMassRatio, CompanionPeriod, StreamTurns, StreamRing, StreamSpiralTo;
+    public double StreamCurve, StreamFlatness, StreamOpacity, StreamFlowLines, StreamFlowScale, StreamFray, StreamTaper, StreamBridge, StreamHeat, CompanionPull;
+    /// <summary>The stream's winding drawn by hand (KSPVE.Pure.Space.StreamShape); empty = the computed one.</summary>
+    public string StreamShape;
+    public Double3 StreamColor;
+    public NebulaGas GasType;
+    public TextureMode TextureMapping;
     public Vector3d Normal;
     public int Steps;
     public double BoundRadius;
@@ -182,7 +197,11 @@ internal sealed class BlackHoleDefinition
         RotationSpeed = v.Get(BlackHoleSettings.RotationSpeed),
         Turbulence = v.Get(BlackHoleSettings.Turbulence),
         DiskStreaks = v.Get(BlackHoleSettings.DiskStreaks),
+        StreaksFrom = v.Get(BlackHoleSettings.StreaksFrom),
+        StreaksFull = v.Get(BlackHoleSettings.StreaksFull),
         OuterGlow = v.Get(BlackHoleSettings.OuterGlow),
+        DiskEdge = v.Get(BlackHoleSettings.DiskEdge),
+        DiskEvenness = v.Get(BlackHoleSettings.DiskEvenness),
         Spin = v.Get(BlackHoleSettings.Spin),
         ColorSaturation = v.Get(BlackHoleSettings.ColorSaturation),
         Glow = v.Get(BlackHoleSettings.Glow),
@@ -200,9 +219,45 @@ internal sealed class BlackHoleDefinition
         JetFlow = v.Get(BlackHoleSettings.JetFlow),
         JetAbsorb = v.Get(BlackHoleSettings.JetAbsorb),
         JetKnots = v.Get(BlackHoleSettings.JetKnots),
+        JetStrands = v.Get(BlackHoleSettings.JetStrands),
+        JetStrandSharpness = v.Get(BlackHoleSettings.JetStrandSharpness),
         JetKnotStart = v.Get(BlackHoleSettings.JetKnotStart),
         JetKnotSpacing = v.Get(BlackHoleSettings.JetKnotSpacing),
         JetKnotGrowth = v.Get(BlackHoleSettings.JetKnotGrowth),
+        Companion = v.Get(BlackHoleSettings.Companion),
+        StreamBrightness = v.Get(BlackHoleSettings.StreamBrightness),
+        CompanionDistance = v.Get(BlackHoleSettings.CompanionDistance),
+        CompanionSpots = v.Get(BlackHoleSettings.CompanionSpots),
+        CompanionGlare = v.Get(BlackHoleSettings.CompanionGlare),
+        CompanionAngle = v.Get(BlackHoleSettings.CompanionAngle),
+        CompanionHeight = v.Get(BlackHoleSettings.CompanionHeight),
+        CompanionRadius = v.Get(BlackHoleSettings.CompanionRadius),
+        CompanionTemperature = v.Get(BlackHoleSettings.CompanionTemperature),
+        CompanionBrightness = v.Get(BlackHoleSettings.CompanionBrightness),
+        CompanionMassRatio = v.Get(BlackHoleSettings.CompanionMassRatio),
+        CompanionPeriod = v.Get(BlackHoleSettings.CompanionPeriod),
+        StreamTurns = v.Get(BlackHoleSettings.StreamTurns),
+        StreamRing = v.Get(BlackHoleSettings.StreamRing),
+        StreamSpiralTo = v.Get(BlackHoleSettings.StreamSpiralTo),
+        StreamCurve = v.Get(BlackHoleSettings.StreamCurve),
+        StreamShape = v.Get(BlackHoleSettings.StreamShape),
+        StreamFlatness = v.Get(BlackHoleSettings.StreamFlatness),
+        StreamOpacity = v.Get(BlackHoleSettings.StreamOpacity),
+        StreamFlowLines = v.Get(BlackHoleSettings.StreamFlowLines),
+        StreamFlowScale = v.Get(BlackHoleSettings.StreamFlowScale),
+        StreamFray = v.Get(BlackHoleSettings.StreamFray),
+        StreamTaper = v.Get(BlackHoleSettings.StreamTaper),
+        StreamBridge = v.Get(BlackHoleSettings.StreamBridge),
+        StreamHeat = v.Get(BlackHoleSettings.StreamHeat),
+        CompanionPull = v.Get(BlackHoleSettings.CompanionPull),
+        StreamWidth = v.Get(BlackHoleSettings.StreamWidth),
+        StreamColor = v.Get(BlackHoleSettings.StreamColor),
+        HotSpot = v.Get(BlackHoleSettings.HotSpot),
+        GasType = v.Get(BlackHoleSettings.GasType),
+        Texture = v.Get(BlackHoleSettings.Texture),
+        TextureMapping = v.Get(BlackHoleSettings.TextureMapping),
+        TextureStrength = v.Get(BlackHoleSettings.TextureStrength),
+        TextureShape = v.Get(BlackHoleSettings.TextureShape),
         Debris = v.Get(BlackHoleSettings.Debris),
         DiskDrag = v.Get(BlackHoleSettings.DiskDrag),
         DiskDragTimescale = v.Get(BlackHoleSettings.DiskDragTimescale),
@@ -224,6 +279,9 @@ internal sealed class BlackHoleDefinition
         CfgNode node = Values();
         if (!string.IsNullOrEmpty(LightSource)) node.Add(BlackHoleSettings.LightSource.Key, LightSource);
         if (!string.IsNullOrEmpty(Gaps)) node.Add(BlackHoleSettings.Gaps.Key, Gaps);
+        if (!string.IsNullOrEmpty(StreamShape)) node.Add(BlackHoleSettings.StreamShape.Key, StreamShape);
+        if (!string.IsNullOrEmpty(Companion)) node.Add(BlackHoleSettings.Companion.Key, Companion);
+        if (!string.IsNullOrEmpty(Texture)) node.Add(BlackHoleSettings.Texture.Key, Texture);
         if (!string.IsNullOrEmpty(GapWidths)) node.Add(BlackHoleSettings.GapWidths.Key, GapWidths);
         if (!string.IsNullOrEmpty(GapDepths)) node.Add(BlackHoleSettings.GapDepths.Key, GapDepths);
         return node;
@@ -337,7 +395,11 @@ internal sealed class BlackHoleDefinition
         .Add(BlackHoleSettings.Spin.Key, Num(Spin))
         .Add(BlackHoleSettings.Turbulence.Key, Num(Turbulence))
         .Add(BlackHoleSettings.DiskStreaks.Key, Num(DiskStreaks))
+        .Add(BlackHoleSettings.StreaksFrom.Key, Num(StreaksFrom))
+        .Add(BlackHoleSettings.StreaksFull.Key, Num(StreaksFull))
         .Add(BlackHoleSettings.OuterGlow.Key, Num(OuterGlow))
+        .Add(BlackHoleSettings.DiskEdge.Key, Num(DiskEdge))
+        .Add(BlackHoleSettings.DiskEvenness.Key, Num(DiskEvenness))
         .Add(BlackHoleSettings.DiskThickness.Key, Num(DiskThickness))
         .Add(BlackHoleSettings.DiskOuter.Key, Num(DiskOuter))
         .Add(BlackHoleSettings.Particles.Key, Num(Particles))
@@ -351,9 +413,42 @@ internal sealed class BlackHoleDefinition
         .Add(BlackHoleSettings.JetFlow.Key, Num(JetFlow))
         .Add(BlackHoleSettings.JetAbsorb.Key, Num(JetAbsorb))
         .Add(BlackHoleSettings.JetKnots.Key, Num(JetKnots))
+        .Add(BlackHoleSettings.JetStrands.Key, Num(JetStrands))
+        .Add(BlackHoleSettings.JetStrandSharpness.Key, Num(JetStrandSharpness))
         .Add(BlackHoleSettings.JetKnotStart.Key, Num(JetKnotStart))
         .Add(BlackHoleSettings.JetKnotSpacing.Key, Num(JetKnotSpacing))
         .Add(BlackHoleSettings.JetKnotGrowth.Key, Num(JetKnotGrowth))
+        .Add(BlackHoleSettings.StreamBrightness.Key, Num(StreamBrightness))
+        .Add(BlackHoleSettings.CompanionDistance.Key, Num(CompanionDistance))
+        .Add(BlackHoleSettings.CompanionSpots.Key, Num(CompanionSpots))
+        .Add(BlackHoleSettings.CompanionGlare.Key, Num(CompanionGlare))
+        .Add(BlackHoleSettings.CompanionAngle.Key, Num(CompanionAngle))
+        .Add(BlackHoleSettings.CompanionHeight.Key, Num(CompanionHeight))
+        .Add(BlackHoleSettings.CompanionRadius.Key, Num(CompanionRadius))
+        .Add(BlackHoleSettings.CompanionTemperature.Key, Num(CompanionTemperature))
+        .Add(BlackHoleSettings.CompanionBrightness.Key, Num(CompanionBrightness))
+        .Add(BlackHoleSettings.CompanionMassRatio.Key, Num(CompanionMassRatio))
+        .Add(BlackHoleSettings.CompanionPeriod.Key, Num(CompanionPeriod))
+        .Add(BlackHoleSettings.StreamTurns.Key, Num(StreamTurns))
+        .Add(BlackHoleSettings.StreamRing.Key, Num(StreamRing))
+        .Add(BlackHoleSettings.StreamSpiralTo.Key, Num(StreamSpiralTo))
+        .Add(BlackHoleSettings.StreamCurve.Key, Num(StreamCurve))
+        .Add(BlackHoleSettings.StreamFlatness.Key, Num(StreamFlatness))
+        .Add(BlackHoleSettings.StreamOpacity.Key, Num(StreamOpacity))
+        .Add(BlackHoleSettings.StreamFlowLines.Key, Num(StreamFlowLines))
+        .Add(BlackHoleSettings.StreamFlowScale.Key, Num(StreamFlowScale))
+        .Add(BlackHoleSettings.StreamFray.Key, Num(StreamFray))
+        .Add(BlackHoleSettings.StreamTaper.Key, Num(StreamTaper))
+        .Add(BlackHoleSettings.StreamBridge.Key, Num(StreamBridge))
+        .Add(BlackHoleSettings.StreamHeat.Key, Num(StreamHeat))
+        .Add(BlackHoleSettings.CompanionPull.Key, Num(CompanionPull))
+        .Add(BlackHoleSettings.StreamWidth.Key, Num(StreamWidth))
+        .Add(BlackHoleSettings.StreamColor.Key, ColorSetting.Write(StreamColor))
+        .Add(BlackHoleSettings.HotSpot.Key, Num(HotSpot))
+        .Add(BlackHoleSettings.GasType.Key, GasType.ToString())
+        .Add(BlackHoleSettings.TextureMapping.Key, TextureMapping.ToString())
+        .Add(BlackHoleSettings.TextureStrength.Key, Num(TextureStrength))
+        .Add(BlackHoleSettings.TextureShape.Key, Num(TextureShape))
         .Add(BlackHoleSettings.DiskLight.Key, Num(DiskLight))
         .Add(BlackHoleSettings.DiskDrag.Key, Bool(DiskDrag))
         .Add(BlackHoleSettings.DiskDragMaxAccel.Key, Num(DiskDragMaxAccel))
@@ -378,7 +473,11 @@ internal sealed class BlackHoleDefinition
         DiskThickness = Math.Max(DiskThickness, 0.0001);
         JetSpiral = Math.Min(Math.Max(JetSpiral, 0.0), 1.0);
         DiskStreaks = Math.Min(Math.Max(DiskStreaks, 0.0), 1.0);
+        StreaksFrom = Math.Min(Math.Max(StreaksFrom, 0.0), 89.0);
+        StreaksFull = Math.Min(Math.Max(StreaksFull, StreaksFrom + 1.0), 90.0);
         OuterGlow = Math.Max(OuterGlow, 0.0);
+        DiskEdge = Math.Min(Math.Max(DiskEdge, 0.0), 1.0);
+        DiskEvenness = Math.Min(Math.Max(DiskEvenness, 0.0), 1.0);
         PeakTemperature = Math.Max(PeakTemperature, 1.0);
         JetLength = Math.Max(JetLength, 0.1);
         JetWidth = Math.Max(JetWidth, 0.0001);
@@ -398,9 +497,39 @@ internal sealed class BlackHoleDefinition
         JetFlow = Math.Max(JetFlow, 0.0);
         JetAbsorb = Math.Max(JetAbsorb, 0.0);
         JetKnots = Math.Min(Math.Max(JetKnots, 0.0), 1.0);
+        JetStrands = Math.Min(Math.Max(JetStrands, 1.0), 200.0);
+        JetStrandSharpness = Math.Min(Math.Max(JetStrandSharpness, 0.1), 100.0);
         JetKnotStart = Math.Min(Math.Max(JetKnotStart, 0.0), 1.0);
         JetKnotSpacing = Math.Max(JetKnotSpacing, 0.001);
         JetKnotGrowth = Math.Max(JetKnotGrowth, 0.0);
+        StreamBrightness = Math.Max(StreamBrightness, 0.0);
+        CompanionDistance = Math.Max(CompanionDistance, 0.0);
+        CompanionSpots = Math.Min(Math.Max(CompanionSpots, 0.0), 1.0);
+        CompanionGlare = Math.Max(CompanionGlare, 0.0);
+        CompanionHeight = Math.Min(Math.Max(CompanionHeight, -90.0), 90.0);
+        CompanionRadius = Math.Max(CompanionRadius, 0.0);
+        CompanionTemperature = Math.Max(CompanionTemperature, 1.0);
+        CompanionBrightness = Math.Max(CompanionBrightness, 0.0);
+        CompanionMassRatio = Math.Max(CompanionMassRatio, 1e-6);
+        CompanionPeriod = Math.Max(CompanionPeriod, 0.0);
+        StreamTurns = Math.Min(Math.Max(StreamTurns, 0.0), 16.0);
+        StreamRing = Math.Max(StreamRing, 0.0);
+        StreamSpiralTo = Math.Min(Math.Max(StreamSpiralTo, 0.0), 1.0);
+        StreamCurve = Math.Min(Math.Max(StreamCurve, 0.0), RocheStream.MaxSpiralCurve);
+        StreamFlatness = Math.Min(Math.Max(StreamFlatness, 1.0), 20.0);
+        StreamOpacity = Math.Min(Math.Max(StreamOpacity, 0.0), 50.0);
+        StreamFlowLines = Math.Min(Math.Max(StreamFlowLines, 0.0), 1.0);
+        StreamFlowScale = Math.Min(Math.Max(StreamFlowScale, 0.05), 20.0);
+        StreamFray = Math.Min(Math.Max(StreamFray, 0.0), 2.0);
+        StreamTaper = Math.Min(Math.Max(StreamTaper, 0.05), 3.0);
+        StreamBridge = Math.Min(Math.Max(StreamBridge, 0.0), 2.0);
+        StreamHeat = Math.Min(Math.Max(StreamHeat, 0.0), 10.0);
+        CompanionPull = Math.Min(Math.Max(CompanionPull, 0.0), 1.0);
+        StreamWidth = Math.Min(Math.Max(StreamWidth, 0.0001), 1.0);
+        StreamColor = NonNegative(StreamColor);
+        HotSpot = Math.Max(HotSpot, 0.0);
+        TextureStrength = Math.Min(Math.Max(TextureStrength, 0.0), 1.0);
+        TextureShape = Math.Min(Math.Max(TextureShape, 0.0), 1.0);
         DiskLight = Math.Max(DiskLight, 0.0);
         DiskDragMaxAccel = Math.Max(DiskDragMaxAccel, 0.0);
         DiskBuffeting = Math.Max(DiskBuffeting, 0.0);
@@ -782,6 +911,16 @@ internal static class BlackHoles
         if (n.sqrMagnitude < 1e-30) return Double3.Zero;
         Vector3d inertial = QuaternionD.Inverse(Planetarium.Rotation) * n.normalized;
         return new Double3(inertial.x, inertial.y, inertial.z);
+    }
+
+    /// <summary>A body by its name, or null.</summary>
+    public static CelestialBody BodyNamed(string name)
+    {
+        if (string.IsNullOrEmpty(name) || FlightGlobals.fetch == null) return null;
+        List<CelestialBody> bodies = FlightGlobals.Bodies;
+        for (int i = 0; i < bodies.Count; i++)
+            if (bodies[i] != null && bodies[i].bodyName == name) return bodies[i];
+        return null;
     }
 
     /// <summary>Keeps a procedural object: it becomes one added in game, saved and editable like the rest.</summary>

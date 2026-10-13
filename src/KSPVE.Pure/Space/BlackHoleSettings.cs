@@ -34,6 +34,10 @@ public static class BlackHoleSettings
     public static readonly ColorSetting JetColor = Schema.Add(new ColorSetting("jetColor", new Double3(0.3, 0.55, 1.0), "Colour of the jets (a neutron star's beams too), r, g, b; their brightest parts go white."));
     public static readonly ColorSetting PhotonRingColor = Schema.Add(new ColorSetting("photonRingColor", new Double3(0.9, 0.95, 1.0), "Colour of the photon ring, r, g, b."));
     public static readonly DoubleSetting OuterGlow = Schema.Add(new DoubleSetting("outerGlow", 0.0, 0.0, 1e6, "Display aid for big disks: beyond 20 horizon radii the disk is shown as if exposed for it, lit by the inner disk (warmed by its light, its inverse-square falloff made up, scattering light in the inner disk's colour). 0 is physical: the far disk is too dim to see."));
+    public static readonly DoubleSetting DiskEdge = Schema.Add(new DoubleSetting("diskEdge", 0.0, 0.0, 1.0, "The disk's outer edge: 0 = it thins into translucent wisps, 1 = a crisp edge (a ring fed by a companion's stream)."));
+    public static readonly DoubleSetting StreaksFrom = Schema.Add(new DoubleSetting("streaksFrom", StreaksFromDegrees, 0.0, 89.0, "The disk's streaks start to show this many degrees above its plane..."));
+    public static readonly DoubleSetting StreaksFull = Schema.Add(new DoubleSetting("streaksFull", StreaksFullDegrees, 1.0, 90.0, "...and are all there by this many (degrees)."));
+    public static readonly DoubleSetting DiskEvenness = Schema.Add(new DoubleSetting("diskEvenness", 0.0, 0.0, 1.0, "Display: 0 = the disk dims outward as it cools (physical); 1 = evenly bright out to its edge, the way artists draw it."));
     public static readonly DoubleSetting Turbulence = Schema.Add(new DoubleSetting("turbulence", 0.8, 0.0, 100.0, "Clumpy, streaky structure in the disk."));
     public static readonly DoubleSetting Spin = Schema.Add(new DoubleSetting("spin", 1.0, -1.0, 1.0, "Orbit direction about the normal: positive prograde, negative retrograde."));
     public static readonly DoubleSetting NormalX = Schema.Add(new DoubleSetting("normalX", 0.0, -1e6, 1e6, "Disk normal, X (inertial frame)."));
@@ -51,6 +55,38 @@ public static class BlackHoleSettings
     public static readonly DoubleSetting JetSpiral = Schema.Add(new DoubleSetting("jetSpiral", 1.0, 0.0, 1.0, "Make each jet a solid spiral core, its surface swirled with streaks of brighter gas; 0 is a plain column."));
     public static readonly DoubleSetting JetTurns = Schema.Add(new DoubleSetting("jetTurns", 4.0, 0.0, 1e6, "Turns the swirl makes along each jet's length."));
     public static readonly DoubleSetting JetFlow = Schema.Add(new DoubleSetting("jetFlow", 30.0, 0.0, 1e9, "How fast the jet's pattern streams outward, in horizon radii per second at mid-length (it speeds up further out)."));
+    // Mass transfer from a companion star (RocheStream): the stream through L1 onto the disk, and its hot spot.
+    public static readonly StringSetting Companion = Schema.Add(new StringSetting("companion", string.Empty, "Black hole or neutron star: a companion star (a body orbiting with it) that spills gas through the inner Lagrange point L1 onto its disk, in a stream that curves with the orbit and strikes the disk's edge at a hot spot; empty = none. The settings window says how full of its Roche lobe the companion is (a real stream needs it full)."));
+    public static readonly DoubleSetting CompanionDistance = Schema.Add(new DoubleSetting("companionDistance", 0.0, 0.0, 1e12, "With no companion body: a companion star drawn by the shader this far from the hole (length units, horizon radii for a black hole), feeding its disk; 0 = none."));
+    public static readonly DoubleSetting CompanionAngle = Schema.Add(new DoubleSetting("companionAngle", 0.0, -360.0, 360.0, "Where round the disk the drawn companion is (degrees)."));
+    public static readonly DoubleSetting CompanionHeight = Schema.Add(new DoubleSetting("companionHeight", 0.0, -90.0, 90.0, "How far above (or below) the disk's plane the drawn companion is (degrees)."));
+    public static readonly DoubleSetting CompanionRadius = Schema.Add(new DoubleSetting("companionRadius", 0.0, 0.0, 1e12, "Radius of the drawn companion (length units); 0 = it just fills its Roche lobe, as a star feeding a disk does."));
+    public static readonly DoubleSetting CompanionTemperature = Schema.Add(new DoubleSetting("companionTemperature", 9000.0, 1.0, 1e9, "Surface temperature of the drawn companion (K)."));
+    public static readonly DoubleSetting CompanionBrightness = Schema.Add(new DoubleSetting("companionBrightness", 1.0, 0.0, 1e6, "Brightness of the drawn companion."));
+    public static readonly DoubleSetting CompanionSpots = Schema.Add(new DoubleSetting("companionSpots", 0.5, 0.0, 1.0, "Dark starspots on the drawn companion."));
+    public static readonly DoubleSetting CompanionGlare = Schema.Add(new DoubleSetting("companionGlare", 1.0, 0.0, 1e6, "The glare round the drawn companion."));
+    public static readonly DoubleSetting CompanionMassRatio = Schema.Add(new DoubleSetting("companionMassRatio", 0.5, 1e-6, 1e6, "The drawn companion's mass over the hole's: sets the Roche geometry (where L1 is, how the stream curves)."));
+    public static readonly DoubleSetting CompanionPeriod = Schema.Add(new DoubleSetting("companionPeriod", 0.0, 0.0, 1e12, "Seconds (real time) for the drawn companion to go round once, the way the disk turns; 0 = it stays put."));
+    public static readonly DoubleSetting StreamTurns = Schema.Add(new DoubleSetting("streamTurns", 0.0, 0.0, 16.0, "After striking the disk the stream carries on round it this many turns, one continuous stream, winding in (streamSpiralTo); 0 = it stops at the hot spot."));
+    public static readonly DoubleSetting StreamRing = Schema.Add(new DoubleSetting("streamRing", 0.0, 0.0, 1e9, "Where the stream strikes and starts winding round the hole (horizon radii; 0 = the disk's outer edge). Further out than the disk, the stream is building it: its windings are the rings."));
+    public static readonly DoubleSetting StreamCurve = Schema.Add(new DoubleSetting("streamCurve", 1.0, 0.0, RocheStream.MaxSpiralCurve, "How its windings close in: 1 = steadily; more = fast at first, then settling; 0 = at first as fast as the gas was falling, so it runs on without a kink."));
+    public static readonly StringSetting StreamShape = Schema.Add(new StringSetting("streamShape", string.Empty, "Its winding drawn by hand, on from where it strikes: points seen from above in units of that radius, x towards the companion, y the way it orbits (\"1 0; 0.6 0.7; ...\"); empty = the computed winding."));
+    public static readonly DoubleSetting StreamFlatness = Schema.Add(new DoubleSetting("streamFlatness", 2.5, 1.0, 20.0, "Falling and winding round, the stream spreads into a flat band this many times wider than it is thick."));
+    public static readonly DoubleSetting StreamOpacity = Schema.Add(new DoubleSetting("streamOpacity", 2.0, 0.0, 50.0, "How opaque the stream is: optical depth through its middle per unit of its half-width."));
+    public static readonly DoubleSetting StreamFlowLines = Schema.Add(new DoubleSetting("streamFlowLines", 1.0, 0.0, 1.0, "Flow lines drawn out along the stream: 0 = smooth gas, 1 = strong streaks."));
+    public static readonly DoubleSetting StreamFlowScale = Schema.Add(new DoubleSetting("streamFlowScale", 1.0, 0.05, 20.0, "How fine the flow lines are (more = finer)."));
+    public static readonly DoubleSetting StreamFray = Schema.Add(new DoubleSetting("streamFray", 0.35, 0.0, 2.0, "How ragged the stream's edge is."));
+    public static readonly DoubleSetting StreamTaper = Schema.Add(new DoubleSetting("streamTaper", 0.6, 0.05, 3.0, "Its width at the end of its winding, as a fraction of its width where it struck."));
+    public static readonly DoubleSetting StreamBridge = Schema.Add(new DoubleSetting("streamBridge", 0.3, 0.0, 2.0, "How wide the gas leaves the star, as a fraction of the star's radius (tapering as it falls)."));
+    public static readonly DoubleSetting StreamHeat = Schema.Add(new DoubleSetting("streamHeat", 0.6, 0.0, 10.0, "How much brighter (hotter) the gas grows as it falls."));
+    public static readonly DoubleSetting CompanionPull = Schema.Add(new DoubleSetting("companionPull", 1.0, 0.0, 1.0, "How much the drawn star's surface is pulled into flow lines converging on the point its gas leaves from."));
+    public static readonly DoubleSetting StreamSpiralTo = Schema.Add(new DoubleSetting("streamSpiralTo", 0.85, 0.0, 1.0, "How far in its windings close, as a fraction of where it struck: 0.85 = a ring round the disk's edge; less = spiralling in towards the hole, a disk forming."));
+    public static readonly DoubleSetting StreamBrightness = Schema.Add(new DoubleSetting("streamBrightness", 1.0, 0.0, 1e6, "Brightness of the mass-transfer stream."));
+    public static readonly DoubleSetting StreamWidth = Schema.Add(new DoubleSetting("streamWidth", 0.05, 0.0001, 1.0, "Width of the stream, as a fraction of the separation (it widens a little as it falls)."));
+    public static readonly ColorSetting StreamColor = Schema.Add(new ColorSetting("streamColor", new Double3(0.8, 0.9, 1.0), "Colour of the stream, r, g, b."));
+    public static readonly DoubleSetting HotSpot = Schema.Add(new DoubleSetting("hotSpot", 1.0, 0.0, 1e6, "Brightness of the hot spot where the stream strikes the disk."));
+    public static readonly DoubleSetting JetStrands = Schema.Add(new DoubleSetting("jetStrands", 12.0, 1.0, 200.0, "Spiral jets: how many strands of brighter gas wind round them."));
+    public static readonly DoubleSetting JetStrandSharpness = Schema.Add(new DoubleSetting("jetStrandSharpness", 1.0, 0.1, 100.0, "Spiral jets: how thin the strands are (1 = soft bands on a solid column; 6 and up = separate fine threads with dark gaps between, wispy at the edge)."));
     public static readonly DoubleSetting JetKnots = Schema.Add(new DoubleSetting("jetKnots", 0.0, 0.0, 1.0, "Past jetKnotStart the jets come apart into a chain of blobs (plasmoids) streaming outward, each a turbulent puff with a bright bow-shaped front: 0 = a continuous jet, 1 = all blobs."));
     public static readonly DoubleSetting JetKnotStart = Schema.Add(new DoubleSetting("jetKnotStart", 0.3, 0.0, 1.0, "Where along the jets they break into blobs, as a fraction of their length."));
     public static readonly DoubleSetting JetKnotSpacing = Schema.Add(new DoubleSetting("jetKnotSpacing", 0.1, 0.001, 10.0, "Spacing of the blobs (fraction of the jet; they are further apart further out)."));
@@ -115,6 +151,12 @@ public static class BlackHoleSettings
     public static readonly DoubleSetting SpiralWinding = Schema.Add(new DoubleSetting("spiralWinding", 3.0, -100.0, 100.0, "Dusty disk: how tightly the arms wind (turns per e-fold of radius; negative winds the other way)."));
     public static readonly DoubleSetting RockSpread = Schema.Add(new DoubleSetting("rockSpread", 1.0, 0.0, 100.0, "Rocks: how far above and below the disk they spread, relative to diskThickness."));
     public static readonly DoubleSetting RockSizeSpread = Schema.Add(new DoubleSetting("rockSizeSpread", 1.0, 0.0, 100.0, "Rocks: how much their sizes vary (0 = all alike)."));
+    public static readonly EnumSetting<NebulaGas> GasType = Schema.Add(new EnumSetting<NebulaGas>("gasType", NebulaGas.Emission, "Nebula: Emission (glowing gas, colorA and colorB), Reflection (dust lit blue by the star at its centre), Dark (an absorbing cloud, black against what is behind), SupernovaRemnant (a web of filaments in an expanding shell) or Pillars (glowing gas carved into dark pillars with bright rims)."));
+    // A custom texture over the object's colour (and shape): any image in GameData.
+    public static readonly StringSetting Texture = Schema.Add(new StringSetting("texture", string.Empty, "An image in GameData (path without the extension, e.g. MyMod/Textures/galaxy) laid over the object: a disk's, belt's, galaxy's or nebula's colour (and shape, by textureShape); empty = none."));
+    public static readonly EnumSetting<TextureMode> TextureMapping = Schema.Add(new EnumSetting<TextureMode>("textureMode", TextureMode.TopDown, "How the texture is laid on: TopDown (the image seen from above, across the outer diameter; a galaxy or nebula photo becomes a volumetric one) or Ramp (its left-to-right colours from the inner edge to the outer, or for a nebula from one gas to the other)."));
+    public static readonly DoubleSetting TextureStrength = Schema.Add(new DoubleSetting("textureStrength", 1.0, 0.0, 1.0, "How much the texture's colours replace the object's own (keeping how bright each part is)."));
+    public static readonly DoubleSetting TextureShape = Schema.Add(new DoubleSetting("textureShape", 0.5, 0.0, 1.0, "How much the texture's brightness and alpha shape the object: dark or clear parts of the image become empty."));
     public static readonly DoubleSetting CloudStretch = Schema.Add(new DoubleSetting("cloudStretch", 1.8, 0.01, 100.0, "Nebula: how much longer it is along its normal than across (1 = round)."));
     public static readonly DoubleSetting CloudRagged = Schema.Add(new DoubleSetting("cloudRagged", 1.9, 0.0, 100.0, "Nebula: how ragged and lobed its outline is."));
     public static readonly DoubleSetting CloudFill = Schema.Add(new DoubleSetting("cloudFill", 0.9, -10.0, 10.0, "Nebula: how much of it is empty between the clouds (lower fills it in)."));
@@ -187,9 +229,13 @@ public static class BlackHoleSettings
     /// How much of the streak look a view gets: <paramref name="streaks"/> (diskStreaks), faded in smoothly with the camera's
     /// height above the disk's plane as seen from the hole (<paramref name="elevationDegrees"/>, 0 edge-on, 90 straight down).
     /// </summary>
-    public static double StreakView(double streaks, double elevationDegrees)
+    public static double StreakView(double streaks, double elevationDegrees) =>
+        StreakView(streaks, elevationDegrees, StreaksFromDegrees, StreaksFullDegrees);
+
+    /// <summary>The same, fading in from <paramref name="fromDegrees"/> to all of it at <paramref name="fullDegrees"/> (streaksFrom, streaksFull).</summary>
+    public static double StreakView(double streaks, double elevationDegrees, double fromDegrees, double fullDegrees)
     {
-        double t = (elevationDegrees - StreaksFromDegrees) / (StreaksFullDegrees - StreaksFromDegrees);
+        double t = (elevationDegrees - fromDegrees) / Math.Max(fullDegrees - fromDegrees, 1e-6);
         t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
         return streaks * t * t * (3.0 - 2.0 * t);
     }

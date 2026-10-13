@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using KSPVE.Core;
 using KSPVE.Pure.Config;
@@ -301,7 +302,21 @@ internal sealed class SettingsWindow : MonoBehaviour
         h.DiskThickness = Slider("    Thickness", h.DiskThickness, 0.01, 2);
         h.Turbulence = Slider("    Puffiness / turbulence", h.Turbulence, 0, 1);
         h.DiskStreaks = Slider("    Swirling streaks seen from above", h.DiskStreaks, 0, 1);
+        if (h.DiskStreaks > 0)
+        {
+            h.StreaksFrom = Slider("      Showing from this high above the disk (deg)", h.StreaksFrom, 0, 89, "0");
+            h.StreaksFull = Slider("      All there from (deg)", h.StreaksFull, 1, 90, "0");
+        }
         h.OuterGlow = Slider("    Outer disk glow (big disks)", h.OuterGlow, 0, 3);
+        h.DiskEdge = Slider("    Outer edge: wispy (0) to crisp (1)", h.DiskEdge, 0, 1);
+        h.DiskEvenness = Slider("    Display: evenly bright out to the edge (0 = dims as it cools)", h.DiskEvenness, 0, 1);
+        h.Rings = Slider("    Rings (gaps in the disk)", h.Rings, 0, 16, "0");
+        if (h.Rings > 0 || !string.IsNullOrEmpty(h.Gaps))
+        {
+            h.RingDepth = Slider("      Gap depth", h.RingDepth, 0, 1);
+            h.RingWidth = Slider("      Gap width (fraction of outer edge)", h.RingWidth, 0.001, 0.2, "0.000");
+        }
+        h.Gaps = TextRow("    Gaps by hand: radii (fractions of the outer edge)", h.Gaps);
         h.Particles = Slider("    Sparks", h.Particles, 0, 2);
         h.Debris = Slider("    Debris", h.Debris, 0, 1);
         h.Jets = Slider("    Jets (0 = off)", h.Jets, 0, 5);
@@ -311,7 +326,12 @@ internal sealed class SettingsWindow : MonoBehaviour
             h.JetWidth = Slider("      Jet width", h.JetWidth, 0.1, 3);
             h.JetSpeed = Slider("      Jet speed (fraction of c)", h.JetSpeed, 0, 0.99);
             h.JetSpiral = Slider("      Spiral (0 = plain column)", h.JetSpiral, 0, 1);
-            if (h.JetSpiral > 0) h.JetTurns = Slider("      Swirl turns", h.JetTurns, 0, 20, "0.0");
+            if (h.JetSpiral > 0)
+            {
+                h.JetTurns = Slider("      Swirl turns", h.JetTurns, 0, 20, "0.0");
+                h.JetStrands = Slider("      Strands round it", h.JetStrands, 1, 60, "0");
+                h.JetStrandSharpness = Slider("      Strand thinness (1 = soft bands)", h.JetStrandSharpness, 0.5, 12);
+            }
             h.JetFlow = Slider("      Flow (horizon radii/s)", h.JetFlow, 0, 200, "0");
             h.JetAbsorb = Slider("      Volume (absorption)", h.JetAbsorb, 0, 3);
             h.JetKnots = Slider("      Breaks into blobs (0 = continuous)", h.JetKnots, 0, 1);
@@ -325,6 +345,8 @@ internal sealed class SettingsWindow : MonoBehaviour
         }
         h.Pulsar = Toggle("    Pulsar: no shadow, lensing or disk, only the jets as beams", h.Pulsar);
         h.DiskFromTde = Toggle("    No disk until a tidal disruption builds one", h.DiskFromTde);
+        DrawCompanion(h);
+        DrawTexture(h);
         h.DiskLight = Slider("    Light on ships", h.DiskLight, 0, 5);
         h.DiskDrag = Toggle("    Disk drag", h.DiskDrag);
         if (h.DiskDrag)
@@ -379,6 +401,11 @@ internal sealed class SettingsWindow : MonoBehaviour
         h.DiskThickness = Slider("    Disk thickness", h.DiskThickness, 0.01, 2);
         h.Turbulence = Slider("    Puffiness / turbulence", h.Turbulence, 0, 1);
         h.DiskStreaks = Slider("    Swirling streaks seen from above", h.DiskStreaks, 0, 1);
+        if (h.DiskStreaks > 0)
+        {
+            h.StreaksFrom = Slider("      Showing from this high above the disk (deg)", h.StreaksFrom, 0, 89, "0");
+            h.StreaksFull = Slider("      All there from (deg)", h.StreaksFull, 1, 90, "0");
+        }
         h.Particles = Slider("    Sparks", h.Particles, 0, 2);
         h.Debris = Slider("    Debris", h.Debris, 0, 1);
         h.RotationSpeed = Slider("    Disk spin speed", h.RotationSpeed, 0, 5);
@@ -396,7 +423,286 @@ internal sealed class SettingsWindow : MonoBehaviour
         }
         DrawFieldLines(h, "    Magnetic field lines");
         DrawMagneticAxis(h);
+        DrawCompanion(h);
         DrawDiskAdvanced(h);
+    }
+
+    private static readonly string[] GasNames = { "Emission", "Reflection", "Dark", "Supernova remnant", "Pillars" };
+    private static readonly string[] TextureModeNames = { "Top-down", "Ramp" };
+
+    /// <summary>Mass transfer from a companion star: its name, how full of its Roche lobe it is, and the stream's look.</summary>
+    private static void DrawCompanion(BlackHoleDefinition h)
+    {
+        if (GUILayout.Button("    Star torn apart (like the reference): a star feeding its disk, the disk its stream's windings"))
+        {
+            // A light star (a twentieth of the hole's mass) filling its Roche lobe, drawn out to a point at L1, feeding a disk
+            // round the hole: its gas is pulled off that point in a broad band and curves smoothly into the disk's edge, where
+            // the tides stop it spreading (Paczynski's limit), just short of the star, then winds on in, its windings the
+            // disk's rings, to a small hot core.
+            h.Companion = string.Empty;
+            h.CompanionMassRatio = 0.05;
+            h.CompanionDistance = 167.0;
+            h.StreamRing = RocheStream.TidalRadius(h.CompanionMassRatio) * h.CompanionDistance;
+            h.StreamTurns = 1.6;
+            h.StreamSpiralTo = 0.35;
+            h.StreamCurve = 1.0;
+            h.StreamShape = string.Empty;
+            h.DiskOuter = h.StreamRing * h.StreamSpiralTo;   // the core it winds in to
+            h.CompanionRadius = 0.0;
+            h.CompanionTemperature = 9000.0;
+            h.CompanionBrightness = 1.2;
+            h.StreamWidth = 0.12;
+            h.StreamFlatness = 3.0;
+            h.StreamOpacity = 2.0;
+            h.StreamFlowLines = 1.0;
+            h.StreamFlowScale = 1.0;
+            h.StreamFray = 0.35;
+            h.StreamTaper = 0.6;
+            h.StreamBridge = 0.3;
+            h.StreamHeat = 0.6;
+            h.CompanionPull = 1.0;
+            h.StreamBrightness = 0.55;   // pale blue-white, its flow lines showing, not burnt out
+            h.HotSpot = 0.3;
+            h.DiskEdge = 0.0;
+            h.DiskEvenness = 1.0;
+            h.Turbulence = 0.0;   // smooth, not clumpy
+            h.Particles = 0.0;
+            h.Debris = 0.0;
+            h.StreamColor = new Double3(0.62, 0.78, 1.0);
+            h.CompanionSpots = 0.6;
+            h.CompanionGlare = 3.0;
+            // The core: white, bright, smooth.
+            h.DiskTint = 1.0;
+            h.InnerColor = new Double3(0.7, 0.82, 1.0);
+            h.OuterColor = new Double3(0.75, 0.85, 1.0);
+            h.InnerBrightness = 1.5;
+            h.OuterBrightness = 1.0;
+            h.Gaps = string.Empty;   // the gaps are between the stream's windings
+            h.GapWidths = string.Empty;
+            h.GapDepths = string.Empty;
+            h.DiskStreaks = 0.0;
+            h.Glow = 4.0;
+            // Jets of a few twisted filaments, slow enough that both show.
+            h.Jets = 0.35;
+            h.JetLength = 300.0;
+            h.JetWidth = 1.6;
+            h.JetSpeed = 0.4;
+            h.JetSpiral = 1.0;
+            h.JetTurns = 1.5;
+            h.JetStrands = 8.0;
+            h.JetStrandSharpness = 8.0;
+            h.JetAbsorb = 0.05;
+            h.JetColor = new Double3(0.7, 0.82, 1.0);
+            GUI.changed = true;
+        }
+        h.Companion = TextRow("    Companion feeding the disk: a body's name...", h.Companion);
+        if (string.IsNullOrEmpty(h.Companion))
+        {
+            // ...or a star the shader draws, placed and sized by hand.
+            h.CompanionDistance = Slider("    ...or a drawn companion this far out (0 = none)", h.CompanionDistance, 0, 500, "0.0");
+            if (h.CompanionDistance <= 0) return;
+            h.CompanionAngle = Slider("      Where round the disk (deg)", h.CompanionAngle, -180, 180, "0");
+            h.CompanionHeight = Slider("      Above the disk (deg)", h.CompanionHeight, -90, 90, "0");
+            h.CompanionRadius = Slider("      Size (0 = just fills its Roche lobe)", h.CompanionRadius, 0, 200, "0.0");
+            h.CompanionTemperature = Slider("      Temperature (K)", h.CompanionTemperature, 2000, 50000, "0");
+            h.CompanionBrightness = Slider("      Brightness", h.CompanionBrightness, 0, 5);
+            h.CompanionSpots = Slider("      Starspots", h.CompanionSpots, 0, 1);
+            h.CompanionGlare = Slider("      Glare round it", h.CompanionGlare, 0, 5);
+            h.CompanionMassRatio = Slider("      Mass over the hole's", h.CompanionMassRatio, 0.01, 5, "0.000");
+            h.CompanionPeriod = Slider("      Seconds per orbit (0 = stays put)", h.CompanionPeriod, 0, 600, "0");
+            h.CompanionPull = Slider("      Its surface pulled towards the stream", h.CompanionPull, 0, 1);
+            GUILayout.Label(string.Format(CultureInfo.InvariantCulture, "      Its Roche lobe: {0:0.#} of the same units across.",
+                2.0 * RocheStream.LobeRadius(h.CompanionMassRatio) * h.CompanionDistance));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("      The stream strikes at:");
+            if (GUILayout.Button("its first ring (a disk forming)"))
+            {
+                h.StreamRing = RocheStream.CircularizationRadius(h.CompanionMassRatio) * h.CompanionDistance;
+                GUI.changed = true;
+            }
+            if (GUILayout.Button("the tides' limit (a grown disk)"))
+            {
+                h.StreamRing = RocheStream.TidalRadius(h.CompanionMassRatio) * h.CompanionDistance;
+                GUI.changed = true;
+            }
+            GUILayout.EndHorizontal();
+        }
+        else
+        {
+            CelestialBody body = h.Body, companion = BlackHoles.BodyNamed(h.Companion);
+            if (companion == null || body == null)
+            {
+                GUILayout.Label("      No body by that name.");
+                return;
+            }
+            double a = (companion.position - body.position).magnitude;
+            double q = body.gravParameter > 0.0 ? companion.gravParameter / body.gravParameter : 0.0;
+            double fill = a > 0.0 ? companion.Radius / (RocheStream.LobeRadius(q) * a) : 0.0;
+            GUILayout.Label(string.Format(CultureInfo.InvariantCulture, "      Mass ratio {0:0.###}; the companion fills {1:0.#}% of its Roche lobe{2}.", q, fill * 100.0,
+                fill >= 1.0 ? " (overflowing: a real stream)" : " (a real one would need it full)"));
+        }
+        h.StreamRing = Slider("      Where it strikes and winds in (0 = the disk's edge)", h.StreamRing, 0, 1000, "0.0");
+        h.StreamTurns = Slider("      Stream winds on round the hole (turns)", h.StreamTurns, 0, 16, "0.0");
+        h.StreamSpiralTo = Slider("      Winding in to (fraction; 0.85 = a ring at the edge)", h.StreamSpiralTo, 0, 1);
+        h.StreamCurve = Slider("      How it closes in (1 = steadily, more = fast then settling, 0 = as fast as it fell)", h.StreamCurve, 0, RocheStream.MaxSpiralCurve);
+        DrawStreamPad(h);
+        h.StreamBrightness = Slider("      Stream brightness", h.StreamBrightness, 0, 10);
+        h.StreamWidth = Slider("      Stream width (fraction of the separation)", h.StreamWidth, 0.001, 0.3, "0.000");
+        h.StreamTaper = Slider("      Width at the end of its winding (fraction)", h.StreamTaper, 0.05, 3);
+        h.StreamBridge = Slider("      Width leaving the star (fraction of the star)", h.StreamBridge, 0, 2);
+        h.StreamFlatness = Slider("      Flat band (width over thickness)", h.StreamFlatness, 1, 20);
+        h.StreamOpacity = Slider("      Opacity", h.StreamOpacity, 0, 50);
+        h.StreamFlowLines = Slider("      Flow lines along it", h.StreamFlowLines, 0, 1);
+        h.StreamFlowScale = Slider("      Flow lines' fineness", h.StreamFlowScale, 0.05, 20);
+        h.StreamFray = Slider("      Ragged edge", h.StreamFray, 0, 2);
+        h.StreamHeat = Slider("      Brightening as it falls", h.StreamHeat, 0, 10);
+        h.HotSpot = Slider("      Hot spot where it strikes the disk", h.HotSpot, 0, 10);
+        h.StreamColor = ColorSliders("      Stream colour", h.StreamColor);
+    }
+
+    // The drawing pad: the stroke being drawn (in the pad's units: the radius where the stream strikes is 1), and the
+    // worked-out fall last looked up for its marks.
+    private static readonly List<Double3> Stroke = new List<Double3>();
+    private static bool _stroking;
+    private static double _padQ = -1.0, _padStop = -1.0;
+    private static List<Double3> _padFall;
+    private const float PadSize = 260f, PadReach = 1.4f;
+
+    /// <summary>
+    /// The stream's winding drawn by hand (streamShape): a pad seen from above the binary's plane, the hole in the middle,
+    /// the star off to the right, the circle the stream strikes and a square where it does; click and drag to draw, the
+    /// stream easing from its fall into the line.
+    /// </summary>
+    private static void DrawStreamPad(BlackHoleDefinition h)
+    {
+        GUILayout.Label("      Draw its winding, seen from above (the hole in the middle, the star off to the right, it arrives at the square): click and drag.");
+        Rect pad = GUILayoutUtility.GetRect(PadSize, PadSize, GUILayout.Width(PadSize), GUILayout.Height(PadSize));
+        float scale = pad.width * 0.5f / PadReach;
+        Vector2 ToPad(Double3 p) => new Vector2(pad.center.x + (float)p.X * scale, pad.center.y - (float)p.Y * scale);
+        Double3 FromPad(Vector2 m) => new Double3((m.x - pad.center.x) / scale, (pad.center.y - m.y) / scale, 0.0);
+
+        // Where the stream arrives (a drawn companion's worked-out fall; a body's is placed by the game, shown at the right).
+        Double3 arrives = Double3.UnitX;
+        RocheStream.StreamSpiral? spiral = null;
+        if (string.IsNullOrEmpty(h.Companion) && h.CompanionDistance > 0.0)
+        {
+            double stop = (h.StreamRing > 0.0 ? h.StreamRing : h.DiskOuter) / h.CompanionDistance;
+            if (_padFall == null || _padQ != h.CompanionMassRatio || _padStop != stop)
+            {
+                _padQ = h.CompanionMassRatio;
+                _padStop = stop;
+                _padFall = RocheStream.Path(_padQ, stop, 24);
+            }
+            Double3 end = _padFall[_padFall.Count - 1];
+            if (end.Length > 0.0) arrives = end / end.Length;
+            spiral = RocheStream.SpiralOf(_padFall, h.StreamTurns, h.StreamSpiralTo, h.StreamCurve);
+        }
+
+        Event e = Event.current;
+        if (e.type == EventType.MouseDown && e.button == 0 && pad.Contains(e.mousePosition))
+        {
+            Stroke.Clear();
+            Stroke.Add(FromPad(e.mousePosition));
+            _stroking = true;
+            e.Use();
+        }
+        else if (e.type == EventType.MouseDrag && _stroking)
+        {
+            Vector2 m = new Vector2(Mathf.Clamp(e.mousePosition.x, pad.xMin, pad.xMax), Mathf.Clamp(e.mousePosition.y, pad.yMin, pad.yMax));
+            if ((ToPad(Stroke[Stroke.Count - 1]) - m).magnitude >= 3f) Stroke.Add(FromPad(m));
+            e.Use();
+        }
+        else if (e.type == EventType.MouseUp && _stroking)
+        {
+            _stroking = false;
+            if (Stroke.Count >= 2)
+            {
+                h.StreamShape = StreamShape.Format(StreamShape.Resample(Stroke, StreamShape.MaxPoints));
+                GUI.changed = true;
+            }
+            e.Use();
+        }
+
+        if (e.type == EventType.Repaint)
+        {
+            GUI.Box(pad, GUIContent.none);
+            Color was = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.25f);
+            for (int k = 0; k < 60; k++)
+            {
+                double angle = k * Math.PI / 30.0;
+                Dot(ToPad(new Double3(Math.Cos(angle), Math.Sin(angle), 0.0)), 2f);
+            }
+            GUI.color = Color.white;
+            Dot(pad.center, 6f);                       // the hole
+            Dot(ToPad(arrives), 8f, true);             // where it arrives
+            GUI.Label(new Rect(pad.xMax - 46f, pad.center.y - 10f, 46f, 20f), "star >");
+            // The winding: being drawn, as drawn, or (faint) as worked out.
+            List<Double3> line = _stroking ? Stroke : StreamShape.Parse(h.StreamShape);
+            bool worked = line.Count < 2 && spiral.HasValue && spiral.Value.Turns > 0.0;
+            if (worked) line = StreamShape.FromSpiral(spiral.Value, 96);
+            GUI.color = worked ? new Color(0.7f, 0.85f, 1f, 0.45f) : new Color(0.75f, 0.88f, 1f, 1f);
+            if (line.Count >= 2 && !worked) DrawLine(ToPad(arrives), ToPad(line[0]));
+            for (int i = 1; i < line.Count; i++) DrawLine(ToPad(line[i - 1]), ToPad(line[i]));
+            GUI.color = was;
+        }
+
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("Clear (the worked-out winding)"))
+        {
+            h.StreamShape = string.Empty;
+            GUI.changed = true;
+        }
+        if (spiral.HasValue && GUILayout.Button("Start from the worked-out one"))
+        {
+            h.StreamShape = StreamShape.Format(StreamShape.FromSpiral(spiral.Value, StreamShape.MaxPoints));
+            GUI.changed = true;
+        }
+        if (!string.IsNullOrEmpty(h.StreamShape) && GUILayout.Button("Smooth"))
+        {
+            h.StreamShape = StreamShape.Format(StreamShape.Smooth(StreamShape.Parse(h.StreamShape), 2));
+            GUI.changed = true;
+        }
+        GUILayout.EndHorizontal();
+        h.StreamShape = TextRow("      As points (x towards the star, y the way it orbits):", h.StreamShape);
+    }
+
+    /// <summary>A square dot centred on <paramref name="at"/>, or its outline.</summary>
+    private static void Dot(Vector2 at, float size, bool hollow = false)
+    {
+        float half = size * 0.5f;
+        if (!hollow)
+        {
+            GUI.DrawTexture(new Rect(at.x - half, at.y - half, size, size), Texture2D.whiteTexture);
+            return;
+        }
+        GUI.DrawTexture(new Rect(at.x - half, at.y - half, size, 1f), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(at.x - half, at.y + half - 1f, size, 1f), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(at.x - half, at.y - half, 1f, size), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(at.x + half - 1f, at.y - half, 1f, size), Texture2D.whiteTexture);
+    }
+
+    /// <summary>A line of dots from <paramref name="a"/> to <paramref name="b"/>.</summary>
+    private static void DrawLine(Vector2 a, Vector2 b)
+    {
+        int n = Mathf.Max(1, Mathf.CeilToInt((b - a).magnitude / 1.5f));
+        for (int k = 0; k <= n; k++) Dot(Vector2.Lerp(a, b, k / (float)n), 2.5f);
+    }
+
+    /// <summary>A custom texture: any image in GameData, laid on from above or as a ramp, over colour and shape.</summary>
+    private static void DrawTexture(BlackHoleDefinition h)
+    {
+        h.Texture = TextRow("    Texture (GameData path, no extension):", h.Texture);
+        if (string.IsNullOrEmpty(h.Texture)) return;
+        GUILayout.Label(BlackHoleRenderer.TextureOf(h.Texture) != null ? "      Found." : "      Not in GameData.");
+        int mode = GUILayout.SelectionGrid((int)h.TextureMapping - 1, TextureModeNames, 2) + 1;
+        if (mode != (int)h.TextureMapping)
+        {
+            h.TextureMapping = (TextureMode)mode;
+            GUI.changed = true;
+        }
+        h.TextureStrength = Slider("      Its colours", h.TextureStrength, 0, 1);
+        h.TextureShape = Slider("      Its brightness shapes it", h.TextureShape, 0, 1);
     }
 
     /// <summary>A star's dipole field lines: how bright, how many, how far, how thick, and their colour.</summary>
@@ -473,6 +779,7 @@ internal sealed class SettingsWindow : MonoBehaviour
         }
         h.RotationSpeed = Slider("    Spin speed", h.RotationSpeed, 0, 1, "0.000");
         h.Spin = Toggle("    Reverse spin", h.Spin < 0) ? -1.0 : 1.0;
+        DrawTexture(h);
         DrawFieldLines(h, "    Star's magnetic field lines");
         if (h.FieldLines > 0) DrawMagneticAxis(h);
     }
@@ -481,6 +788,13 @@ internal sealed class SettingsWindow : MonoBehaviour
     private static void DrawNebula(BlackHoleDefinition h)
     {
         h.Brightness = Slider("    Brightness", h.Brightness, 0, 50);
+        GUILayout.Label("    Gas:");
+        int gas = GUILayout.SelectionGrid((int)h.GasType, GasNames, 3);
+        if (gas != (int)h.GasType)
+        {
+            h.GasType = (NebulaGas)gas;
+            GUI.changed = true;
+        }
         h.DiskOuter = Slider("    Radius (length units)", h.DiskOuter, 1, 100000, "0");
         h.Dust = Slider("    Gas", h.Dust, 0, 5);
         h.ColorA = ColorSliders("    Gas colour (hydrogen)", h.ColorA);
@@ -493,6 +807,7 @@ internal sealed class SettingsWindow : MonoBehaviour
         h.CloudStretch = Slider("    Stretch along the normal (1 = round)", h.CloudStretch, 0.2, 5);
         h.CloudRagged = Slider("    Ragged outline", h.CloudRagged, 0, 4);
         h.CloudFill = Slider("    Emptiness between clouds (lower fills it)", h.CloudFill, -1, 2);
+        DrawTexture(h);
         h.StarGlow = Slider("    A star inside: its glow (fraction of the radius)", h.StarGlow, 0, 1, "0.000");
         if (h.StarGlow > 0) h.StarTemperature = Slider("      Its temperature (K)", h.StarTemperature, 1000, 100000, "0");
         h.RotationSpeed = Slider("    Turning speed", h.RotationSpeed, 0, 0.1, "0.0000");
@@ -522,6 +837,7 @@ internal sealed class SettingsWindow : MonoBehaviour
         h.DustLanes = Slider("    Dust lanes", h.DustLanes, 0, 5);
         h.Clumps = Slider("    Star clouds (mottling)", h.Clumps, 0, 2);
         h.CloudWarp = Slider("    Irregularity", h.CloudWarp, 0, 2);
+        DrawTexture(h);
         h.RotationSpeed = Slider("    Turning speed", h.RotationSpeed, 0, 0.1, "0.0000");
     }
 

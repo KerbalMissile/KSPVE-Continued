@@ -12,7 +12,8 @@ internal static partial class Program
 {
     // Kcalbeloh defaults (KSPVE_BLACKHOLE_Kcalbeloh.cfg)
     static readonly float Inner = EnvFloat("BH_INNER", 3f), Outer = EnvFloat("BH_OUTER", 14f), Thickness = EnvFloat("BH_THICK", 0.12f);
-    const float Turbulence = 0.8f, Spin = 1f, RotationSpeed = 1f;
+    static readonly float Turbulence = EnvFloat("BH_TURB", 0.8f), DiskEvenness = EnvFloat("BH_EVEN", 0f);
+    const float Spin = 1f, RotationSpeed = 1f;
     const float Ring = 1f;
     static readonly float Glow = EnvFloat("BH_GLOW", 1f);
     // Look, overridable for tuning: BH_PEAK (kelvin), BH_SAT (colour saturation) and BH_BRIGHT environment variables.
@@ -29,6 +30,323 @@ internal static partial class Program
         var ci = System.Globalization.CultureInfo.InvariantCulture;
         return new Vector3(float.Parse(p[0], ci), float.Parse(p[1], ci), float.Parse(p[2], ci));
     }
+    // A custom texture (texture, textureMode, textureStrength, textureShape): BH_TEXTURE=file.png for the hole's disk.
+    static TextureFile Tex;
+    static float TexMode, TexStrength = 1f, TexShape = 0.5f;
+    static Vector4 TexAt(float px, float py, float r, float inner, float outer) =>
+        TexMode < 1.5f ? Tex.Sample(0.5f + px / (2f * outer), 0.5f + py / (2f * outer)) : Tex.Sample(Math.Clamp((r - inner) / MathF.Max(outer - inner, 1e-6f), 0f, 1f), 0.5f);
+    static Vector3 TexColor(Vector3 c, Vector4 t)
+    {
+        var rgb = new Vector3(t.X, t.Y, t.Z);
+        return Vector3.Lerp(c, rgb * (Luma(c) / MathF.Max(Luma(rgb), 1e-3f)), TexStrength);
+    }
+    static float TexShapeOf(Vector4 t) => 1f + (Math.Clamp(Luma(new Vector3(t.X, t.Y, t.Z)) * 1.6f, 0f, 1f) * t.W - 1f) * TexShape;
+
+    // Mass transfer from a companion (KSPVE.Pure.Space.RocheStream): BH_COMPANION_Q (mass ratio), BH_COMPANION_A (separation,
+    // horizon radii), BH_COMPANION_ANGLE (degrees round the disk), BH_STREAM, BH_STREAMWIDTH, BH_HOTSPOT; the companion
+    // itself drawn too (preview only; the game draws the body), filling its Roche lobe unless BH_COMPANION_R says.
+    const int StreamBallistic = 24, StreamPoints = 25;   // 1 out of the star, 24 falling (the winding on is a spiral)
+    // Its winding on in (BlackHole.shader's _KSPVE_StreamSpiral...): BH_STREAMTURNS turns from where it strikes (BH_STREAMRING,
+    // horizon radii, or the disk's edge) in to BH_SPIRALTO of that radius.
+    static float SpR0, SpR1, SpAngle, SpA0, SpSense, SpW0, SpW1, SpFall, SpCurve = 1f;
+    static Vector3 StreamEx = Vector3.UnitX;
+    // Its look (streamFlatness, streamOpacity, streamFlowLines, streamFlowScale, streamFray, companionPull, streamHeat), and
+    // a winding drawn by hand (BH_STREAMSHAPE, as streamShape).
+    static float StreamFlat = 2.5f, StreamOpac = 2f, FlowLines = 1f, FlowScale = 1f, Fray = 0.35f, Pull = 1f, StreamHeat = 0.6f;
+    static readonly Vector4[] Drawn = new Vector4[KSPVE.Pure.Space.StreamShape.MaxPoints];
+    static int DrawnCount;
+    static readonly Vector4[] StreamPts = new Vector4[StreamPoints];
+    static int StreamCount, StreamImpact;
+    static float StreamBright, HotSpotBright, StreamRadius, CompanionR, CompanionT;
+    static Vector3 StreamCenter, StreamColor = new Vector3(0.8f, 0.9f, 1f), CompanionPos;
+    // The drawn companion (BlackHole.shader's _KSPVE_CompanionLobe / _KSPVE_CompanionAxis): CompanionR the sphere holding it.
+    static float LobeQ, LobeL1, LobePhi, CompanionReq;
+    static Vector3 CompanionAxis = Vector3.UnitY;
+
+    static void InitStream()
+    {
+        float q = EnvFloat("BH_COMPANION_Q", 0f), a = EnvFloat("BH_COMPANION_A", 0f);
+        if (q <= 0f || a <= 0f) return;
+        float angle = EnvFloat("BH_COMPANION_ANGLE", 0f) * MathF.PI / 180f, height = EnvFloat("BH_COMPANION_HEIGHT", 0f) * MathF.PI / 180f;
+        Vector3 t = Vector3.Normalize(Vector3.Cross(N, MathF.Abs(N.Y) < 0.99f ? Vector3.UnitY : Vector3.UnitX)), b = Vector3.Cross(N, t);
+        Vector3 ex = (t * MathF.Cos(angle) + b * MathF.Sin(angle)) * MathF.Cos(height) + N * MathF.Sin(height);
+        Vector3 ey = Vector3.Normalize(Vector3.Cross(N, ex)) * (Spin < 0 ? -1f : 1f);   // the companion orbits the way the disk turns
+        float ring = EnvFloat("BH_STREAMRING", 0f);
+        var path = KSPVE.Pure.Space.RocheStream.Path(q, (ring > 0f ? ring : OuterNow) / a, StreamBallistic);
+        // What it winds on as (BlackHoleRenderer.StreamPath): worked out, the fall eased into it an eighth of a turn round, or
+        // drawn by hand (BH_STREAMSHAPE), the fall eased into the drawing's start.
+        var spiral = KSPVE.Pure.Space.RocheStream.SpiralOf(path, Math.Min(EnvFloat("BH_STREAMTURNS", 0f), 16f), EnvFloat("BH_SPIRALTO", 0.85f), EnvFloat("BH_CURVE", 1f));
+        var drawnPts = KSPVE.Pure.Space.StreamShape.Resample(KSPVE.Pure.Space.StreamShape.Parse(Environment.GetEnvironmentVariable("BH_STREAMSHAPE")), KSPVE.Pure.Space.StreamShape.MaxPoints);
+        DrawnCount = drawnPts.Count >= 2 ? drawnPts.Count : 0;
+        double strike = path[path.Count - 1].Length;
+        var fall = path;
+        if (DrawnCount > 0)
+            fall = KSPVE.Pure.Space.RocheStream.EaseInto(path, 16, drawnPts[0] * strike, drawnPts[1] - drawnPts[0], StreamBallistic - 16);
+        else if (spiral.Turns > 0.0)
+        {
+            double t0 = Math.Min(KSPVE.Pure.Space.RocheStream.EaseAngle / (2.0 * Math.PI * spiral.Turns), 0.5);
+            fall = KSPVE.Pure.Space.RocheStream.EaseInto(path, 16, spiral.At(t0), spiral.DirectionAt(t0), StreamBallistic - 16);
+            spiral = spiral.From(t0);
+        }
+        StreamCount = Math.Min(fall.Count + 1, StreamPoints);
+        StreamImpact = StreamCount - 1;
+        float width = EnvFloat("BH_STREAMWIDTH", 0.05f);
+        float reach = 0f;
+        // Filling its Roche lobe (no BH_COMPANION_R) it is drawn out to a point at L1, the farthest of it from its centre.
+        float radiusSet = EnvFloat("BH_COMPANION_R", 0f);
+        CompanionReq = radiusSet > 0f ? radiusSet : (float)KSPVE.Pure.Space.RocheStream.LobeRadius(q) * a;
+        LobeL1 = (float)KSPVE.Pure.Space.RocheStream.L1FromCompact(q);
+        LobeQ = radiusSet > 0f ? 0f : q;
+        LobePhi = (float)KSPVE.Pure.Space.RocheStream.LobePotential(q);
+        CompanionR = LobeQ > 0f ? MathF.Max((1f - LobeL1) * a, CompanionReq) : CompanionReq;
+        CompanionAxis = Vector3.Normalize(Vector3.Cross(ex, ey));
+        // Out of the star (BlackHoleRenderer.StreamPath): a funnel from inside it out to L1, wide where it leaves the star, and
+        // a broad bridge tapering as it falls.
+        float from = LobeQ > 0f ? CompanionReq : MathF.Min(CompanionReq, (1f - (float)path[0].X) * a);
+        float bridge = EnvFloat("BH_BRIDGE", 0.3f) * from;
+        StreamFlat = EnvFloat("BH_STREAMFLAT", 2.5f); StreamOpac = EnvFloat("BH_STREAMOPACITY", 2f); FlowLines = EnvFloat("BH_FLOWLINES", 1f);
+        FlowScale = EnvFloat("BH_FLOWSCALE", 1f); Fray = EnvFloat("BH_FRAY", 0.35f); Pull = EnvFloat("BH_PULL", 1f); StreamHeat = EnvFloat("BH_HEAT", 0.6f);
+        for (int i = 1; i < StreamCount; i++)
+        {
+            Vector3 w = (ex * (float)fall[i - 1].X + ey * (float)fall[i - 1].Y) * a;
+            float u = MathF.Min((i - 1f) / MathF.Max(StreamImpact - 1, 1), 1f);
+            StreamPts[i] = new Vector4(w, MathF.Max(0.5f * width * a * (1f + 1.5f * u), bridge * (1f - u)));   // as wide on round the disk as where it struck
+        }
+        StreamPts[0] = new Vector4(ex * (a - 0.6f * from), MathF.Max(0.5f * from, StreamPts[1].W));
+        // Winding on in (BlackHoleRenderer.StreamPath).
+        SpCurve = (float)spiral.Curve;
+        SpFall = 0f;
+        for (int i = 0; i + 1 < StreamCount; i++) SpFall += (new Vector3(StreamPts[i + 1].X, StreamPts[i + 1].Y, StreamPts[i + 1].Z) - new Vector3(StreamPts[i].X, StreamPts[i].Y, StreamPts[i].Z)).Length();
+        SpR0 = (float)spiral.R0 * a; SpR1 = (float)spiral.R1 * a; SpAngle = (float)(2.0 * Math.PI * spiral.Turns); SpA0 = (float)spiral.A0;
+        SpSense = (float)spiral.Sense; SpW0 = StreamPts[StreamCount - 1].W; SpW1 = EnvFloat("BH_TAPER", 0.6f) * SpW0;
+        for (int k = 0; k < DrawnCount; k++)
+            Drawn[k] = new Vector4((ex * (float)drawnPts[k].X + ey * (float)drawnPts[k].Y) * (float)(strike * a), SpW0 + (SpW1 - SpW0) * k / (DrawnCount - 1f));
+        if (DrawnCount > 0) SpAngle = 0f;
+        StreamEx = ex;
+        for (int i = 0; i < StreamCount; i++) StreamCenter += new Vector3(StreamPts[i].X, StreamPts[i].Y, StreamPts[i].Z) / StreamCount;
+        for (int i = 0; i < StreamCount; i++)
+        {
+            var p = new Vector3(StreamPts[i].X, StreamPts[i].Y, StreamPts[i].Z);
+            StreamRadius = MathF.Max(StreamRadius, (p - StreamCenter).Length() + 4f * StreamPts[i].W);
+            reach = MathF.Max(reach, p.Length() + 3f * StreamPts[i].W);
+        }
+        for (int k = 0; k < DrawnCount; k++)
+        {
+            var p = new Vector3(Drawn[k].X, Drawn[k].Y, Drawn[k].Z);
+            StreamRadius = MathF.Max(StreamRadius, (p - StreamCenter).Length() + 4f * SpW0);
+            reach = MathF.Max(reach, p.Length() + 3f * SpW0);
+        }
+        if (SpAngle > 0f)
+            for (int k = 0; k <= 64; k++)
+            {
+                var sp = spiral.At(k / 64.0);
+                Vector3 p = (ex * (float)sp.X + ey * (float)sp.Y) * a;
+                StreamRadius = MathF.Max(StreamRadius, (p - StreamCenter).Length() + 4f * SpW0);
+                reach = MathF.Max(reach, p.Length() + 3f * SpW0);
+            }
+        StreamBright = EnvFloat("BH_STREAM", 1f);
+        HotSpotBright = EnvFloat("BH_HOTSPOT", 1f);
+        StreamColor = EnvVec("BH_STREAMCOLOR", StreamColor);
+        CompanionPos = ex * a;
+        CompanionT = EnvFloat("BH_COMPANION_T", 9000f);
+        Bound = MathF.Max(Bound, MathF.Max(reach, a + 1.6f * CompanionR));
+    }
+
+    /// <summary>The drawn companion's surface (BlackHole.shader's CompanionSurface): its own brightness, whatever the disk's.</summary>
+    static Vector3 CompanionSurface(Vector3 n, Vector3 vn)
+    {
+        float mu = MathF.Max(Vector3.Dot(n, -vn), 0f), edge = 1f - mu;
+        float limb = 1f - 0.6f * edge - 0.2f * edge * edge;
+        float granules = 0.84f + 0.32f * Fbm(n * 22f + new Vector3(Time * 0.01f));
+        granules *= 1f - 0.8f * EnvFloat("BH_COMPANION_SPOTS", 0.5f) * SmoothStep(0.68f, 0.74f, Fbm(n * 7f + new Vector3(3.3f)));   // a few small, round dark starspots
+        Vector3 c = Saturate(Blackbody(CompanionT), 1.5f), cool = Saturate(Blackbody(CompanionT * 0.8f), 1.5f);
+        c /= MathF.Max(Luma(c), 1e-4f);
+        cool /= MathF.Max(Luma(cool), 1e-4f);
+        if (StreamCount > 0)
+        {
+            // Being pulled off: towards the hole its gas is drawn out into flow lines converging on the point the stream
+            // leaves from, in the stream's colour.
+            Vector3 toHole = -Vector3.Normalize(CompanionPos);
+            float tip = Vector3.Dot(n, toHole);
+            float pull = SmoothStep(0.2f, 0.9f, tip) * Pull;
+            Vector3 e2 = Vector3.Normalize(Vector3.Cross(toHole, MathF.Abs(toHole.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX)), e3 = Vector3.Cross(toHole, e2);
+            float around = MathF.Atan2(Vector3.Dot(n, e2), Vector3.Dot(n, e3));
+            float lines = 0.55f + 0.9f * Noise3(new Vector3(MathF.Cos(around) * 9f, MathF.Sin(around) * 9f, MathF.Acos(Math.Clamp(tip, 0f, 1f)) * 1.5f - Time * 0.3f));
+            granules += (lines - granules) * pull;
+            Vector3 sc = StreamColor / MathF.Max(Luma(StreamColor), 1e-4f);
+            c = Vector3.Lerp(c, sc, 0.6f * pull);
+            cool = Vector3.Lerp(cool, sc, 0.6f * pull);
+        }
+        return Vector3.Lerp(c, cool, edge * 0.6f) * (limb * granules * 2.0f * EnvFloat("BH_COMPANION_BRIGHT", 1f) / MathF.Max(Brightness, 1e-3f));
+    }
+
+    /// <summary>Whether x is inside the drawn companion (BlackHole.shader's InCompanion), its outward normal, and the safe step.</summary>
+    static bool InCompanion(Vector3 x, out Vector3 normal, out float dist)
+    {
+        Vector3 dc = x - CompanionPos;
+        float dcl = dc.Length(), R = CompanionR;
+        normal = dc / MathF.Max(dcl, 1e-6f);
+        dist = MathF.Max(dcl - R, 0.02f * R) + 0.001f;
+        if (dcl >= R) return false;
+        if (LobeQ <= 0f) return true;
+        float a = CompanionPos.Length();
+        Vector3 ex = CompanionPos / a, ez = CompanionAxis, ey = Vector3.Cross(ez, ex);
+        var p = new Vector3(Vector3.Dot(x, ex), Vector3.Dot(x, ey), Vector3.Dot(x, ez)) / a;   // the hole at 0, the companion at (1, 0, 0)
+        float m1 = 1f / (1f + LobeQ), m2 = LobeQ / (1f + LobeQ);
+        Vector3 d2 = p - Vector3.UnitX, c = new Vector3(p.X - m2, p.Y, 0f);
+        float r1 = MathF.Max(p.Length(), 1e-6f), r2 = MathF.Max(d2.Length(), 1e-6f);
+        Vector3 g = p * (m1 / (r1 * r1 * r1)) + d2 * (m2 / (r2 * r2 * r2)) - c;
+        float excess = -m1 / r1 - m2 / r2 - 0.5f * c.LengthSquared() - LobePhi;
+        normal = Vector3.Normalize(ex * g.X + ey * g.Y + ez * g.Z);
+        dist = Math.Clamp(0.8f * excess / MathF.Max(g.Length(), 1e-4f) * a, 0.004f * CompanionReq, 0.1f * CompanionReq);
+        return excess < 0f && p.X > LobeL1;
+    }
+
+    /// <summary>The glare round the drawn companion (BlackHole.shader's CompanionGlare), per unit length at distance d.</summary>
+    static Vector3 CompanionGlare(float d)
+    {
+        float glare = EnvFloat("BH_COMPANION_GLARE", 1f), R = CompanionReq;
+        if (R <= 0f || glare <= 0f || d < R) return Vector3.Zero;
+        Vector3 c = Saturate(Blackbody(CompanionT * 1.3f), 1.6f);
+        c /= MathF.Max(Luma(c), 1e-4f);
+        float hh = (d - R) / R;
+        return c * (glare * (0.5f * MathF.Exp(-hh / 0.08f) + 0.02f * MathF.Exp(-hh / 0.5f)) / R / MathF.Max(Brightness, 1e-3f));
+    }
+
+    // The hole's disk's rings (BH_RINGS, BH_RINGDEPTH, BH_RINGWIDTH, or BH_GAPS / BH_GAPWIDTHS / BH_GAPDEPTHS by hand).
+    static int HoleGapCount = -1;
+    static readonly Vector4[] HoleGaps = new Vector4[KSPVE.Pure.Space.DiskGaps.Max];
+    static float HoleGapFactor(float r)
+    {
+        if (HoleGapCount < 0)
+        {
+            var gaps = new KSPVE.Pure.Space.DiskGap[KSPVE.Pure.Space.DiskGaps.Max];
+            HoleGapCount = KSPVE.Pure.Space.DiskGaps.Fill(InnerNow, OuterNow, EnvFloat("BH_RINGS", 0f), EnvFloat("BH_RINGDEPTH", 0.97f), EnvFloat("BH_RINGWIDTH", 0.02f),
+                Environment.GetEnvironmentVariable("BH_GAPS"), Environment.GetEnvironmentVariable("BH_GAPWIDTHS"), Environment.GetEnvironmentVariable("BH_GAPDEPTHS"), gaps);
+            for (int i = 0; i < HoleGapCount; i++) HoleGaps[i] = new Vector4((float)gaps[i].Radius, (float)gaps[i].Width, (float)gaps[i].Depth, 0f);
+        }
+        float f = 1f;
+        for (int k = 0; k < HoleGapCount; k++) f *= 1f - HoleGaps[k].Z * MathF.Exp(-Sq((r - HoleGaps[k].X) / HoleGaps[k].Y));
+        return f;
+    }
+
+    // The stream's glow per unit optical depth (how opaque it is: streamOpacity).
+    const float StreamSurface = 1.2f;
+
+    /// <summary>The stream at x (BlackHole.shader's StreamSample): its opaque gas (extinction tubeK, glow per unit optical
+    /// depth tubeColor), the glows round L1 and the hot spot per unit length (returned), and the step that cannot skip it.</summary>
+    static Vector3 StreamSample(Vector3 x, float fp, out float limit, out float tubeK, out Vector3 tubeColor)
+    {
+        limit = 1e9f;
+        tubeK = 0f;
+        tubeColor = Vector3.Zero;
+        if (StreamCount < 2) return Vector3.Zero;
+        float reach = (x - StreamCenter).Length() - StreamRadius;
+        if (reach > 0f) { limit = MathF.Max(reach, StreamPts[0].W); return Vector3.Zero; }
+        Vector3 ez = CompanionAxis;
+        float best = 1e9f, bestU = 0f, bestW = 1f, bestD = 1e9f, bestS = 0f, arc = 0f, bestTrue = 1e9f, bestFlat = 1f;
+        Vector3 bestO = Vector3.Zero, bestDir = Vector3.UnitX;
+        bool wound = false;
+        // Falling: round as it leaves the star, spreading flat as it nears where it strikes.
+        for (int s = 0; s + 1 < StreamCount; s++)
+        {
+            Vector4 a = StreamPts[s], b = StreamPts[s + 1];
+            var pa = new Vector3(a.X, a.Y, a.Z);
+            Vector3 ab = new Vector3(b.X, b.Y, b.Z) - pa;
+            float tt = Math.Clamp(Vector3.Dot(x - pa, ab) / MathF.Max(Vector3.Dot(ab, ab), 1e-12f), 0f, 1f);
+            Vector3 o = x - (pa + ab * tt);
+            float uu = (s + tt) / (StreamCount - 1f);
+            float squash = 1f + (StreamFlat - 1f) * SmoothStep(0.3f, 1f, uu);
+            Vector3 band = o + ez * (Vector3.Dot(o, ez) * (squash - 1f));
+            float d = band.Length();
+            float w = a.W + (b.W - a.W) * tt;
+            float len = ab.Length();
+            if (d / w < best) { best = d / w; bestD = d; bestTrue = o.Length(); bestW = w; bestU = uu; bestS = arc + tt * len; bestO = band; bestDir = ab; bestFlat = squash; }
+            arc += len;
+        }
+        // Winding on in round the hole: for each winding the point's angle could be on, the spiral's radius there.
+        if (SpAngle > 0f)
+        {
+            Vector3 ex = StreamEx, ey = Vector3.Cross(ez, ex);
+            float px = Vector3.Dot(x, ex), py = Vector3.Dot(x, ey), h = Vector3.Dot(x, ez);
+            float rr = MathF.Max(MathF.Sqrt(px * px + py * py), 1e-6f);
+            float delta = Frac(SpSense * (MathF.Atan2(py, px) - SpA0) / (2f * MathF.PI)) * 2f * MathF.PI;
+            Vector3 radial = (ex * px + ey * py) / rr;
+            for (int k = 0; k < 17; k++)
+            {
+                float th = delta + 2f * MathF.PI * k;
+                bool atEnd = th >= SpAngle;
+                th = MathF.Min(th, SpAngle);   // past its end: its rounded end
+                float f = th / SpAngle;
+                float ringR = SpR1 + (SpR0 - SpR1) * MathF.Pow(MathF.Max(1f - f, 0f), SpCurve), w = SpW0 + (SpW1 - SpW0) * f;
+                Vector3 o = radial * (rr - ringR) + ez * h;
+                if (atEnd) o = x - (ex * (ringR * MathF.Cos(SpA0 + SpSense * th)) + ey * (ringR * MathF.Sin(SpA0 + SpSense * th)));
+                Vector3 band = o + ez * (Vector3.Dot(o, ez) * (StreamFlat - 1f));   // a flat band: thinner out of the plane
+                float d = band.Length();
+                if (d / w < best)
+                {
+                    best = d / w; bestD = d; bestTrue = o.Length(); bestW = w; bestO = band; wound = true; bestFlat = StreamFlat;
+                    bestS = SpFall + th * 0.5f * (SpR0 + ringR);
+                    bestDir = Vector3.Cross(ez, radial) * SpSense;
+                }
+                if (atEnd) break;
+            }
+        }
+        // Or winding on as drawn by hand, from where it strikes.
+        if (DrawnCount >= 2)
+        {
+            Vector4 prev = StreamPts[StreamImpact];
+            float drawnArc = SpFall;
+            for (int j = 0; j < DrawnCount; j++)
+            {
+                Vector4 b = Drawn[j];
+                var pa = new Vector3(prev.X, prev.Y, prev.Z);
+                Vector3 ab = new Vector3(b.X, b.Y, b.Z) - pa;
+                float tt = Math.Clamp(Vector3.Dot(x - pa, ab) / MathF.Max(Vector3.Dot(ab, ab), 1e-12f), 0f, 1f);
+                Vector3 o = x - (pa + ab * tt);
+                Vector3 band = o + ez * (Vector3.Dot(o, ez) * (StreamFlat - 1f));
+                float d = band.Length();
+                float w = prev.W + (b.W - prev.W) * tt;
+                float len = ab.Length();
+                if (d / w < best) { best = d / w; bestD = d; bestTrue = o.Length(); bestW = w; bestO = band; bestDir = ab; bestS = drawnArc + tt * len; wound = true; bestFlat = StreamFlat; }
+                drawnArc += len;
+                prev = b;
+            }
+        }
+        float ww = MathF.Sqrt(bestW * bestW + fp * fp);
+        limit = MathF.Max(bestTrue - 2.5f * ww, 0.3f * ww / bestFlat);
+        // Where across it x is (in its widths: in the orbit's plane and out of it), and how far along it (in its widths), so its
+        // texture is drawn out along the flow: fine flow lines, gas being pulled along, not billowing cloud.
+        Vector3 flowDir = Vector3.Normalize(bestDir + new Vector3(1e-6f));
+        Vector3 sideDir = Vector3.Normalize(Vector3.Cross(ez, flowDir) + new Vector3(1e-6f));
+        float acrossX = Vector3.Dot(bestO, sideDir) / ww, acrossY = Vector3.Dot(bestO, ez) / ww;
+        float along = bestS / ww;
+        float lines = 0.25f + 1.5f * SmoothStep(0.3f, 0.7f, Fbm(new Vector3(along * 0.25f * FlowScale - Time * 0.6f, acrossX * 3f * FlowScale, acrossY * 3f * FlowScale)));
+        float turb = 1f + (lines - 1f) * FlowLines;
+        // Hotter (brighter) the further it has fallen; past where it strikes it carries on, one continuous stream, winding in
+        // round the hole.
+        float impactU = MathF.Max(StreamImpact / (StreamCount - 1f), 1e-3f);
+        float fallen = wound ? 1f : MathF.Min(bestU / impactU, 1f);
+        float heat = 1f + StreamHeat * fallen * fallen;
+        // Its edge frays into the flow lines; thinner than a pixel it fades rather than growing.
+        float fluff = Fbm(new Vector3(along * 0.12f * FlowScale - Time * 0.6f, acrossX * 1.2f * FlowScale, acrossY * 1.2f * FlowScale) + new Vector3(4.1f));
+        float body = 1f - SmoothStep(0.55f, 1.15f, bestD / ww + Fray * (fluff - 0.5f));
+        tubeK = StreamOpac * body * (bestW / ww) / ww * bestFlat;   // a band as much gas as the tube
+        tubeColor = StreamColor * (StreamBright * heat * turb * StreamSurface);
+        Vector3 emit = Vector3.Zero;
+        Vector4 first = StreamPts[1], last = StreamPts[StreamImpact];
+        var pf = new Vector3(first.X, first.Y, first.Z);
+        var pl = new Vector3(last.X, last.Y, last.Z);
+        float r0 = 2f * first.W, rs = 1.5f * last.W;
+        float r0p = MathF.Sqrt(r0 * r0 + fp * fp), rsp = MathF.Sqrt(rs * rs + fp * fp);
+        emit += StreamColor * (StreamBright * 0.1f * MathF.Exp(-Vector3.Dot(x - pf, x - pf) / (r0p * r0p)) / r0p);
+        emit += new Vector3(0.85f, 0.92f, 1f) * (HotSpotBright * 0.15f * MathF.Exp(-Vector3.Dot(x - pl, x - pl) / (rsp * rsp)) * (rs * rs) / (rsp * rsp) / rs);
+        limit = MathF.Min(limit, MathF.Max((x - pl).Length() - 3f * rsp, 0.3f * rsp));
+        return emit;
+    }
+
+    // The spiral jets' strands (jetStrands, jetStrandSharpness).
+    static float JetStrands = EnvFloat("BH_JETSTRANDS", 12f), JetStrandSharpness = EnvFloat("BH_JETSHARP", 1f);
     // Jets breaking into blobs (jetKnots, jetKnotStart, jetKnotSpacing, jetKnotGrowth).
     static float JetKnots = EnvFloat("BH_JETKNOTS", 0f), JetKnotStart = EnvFloat("BH_JETKNOTSTART", 0.3f),
         JetKnotSpacing = EnvFloat("BH_JETKNOTSPACING", 0.1f), JetKnotGrowth = EnvFloat("BH_JETKNOTGROWTH", 1f);
@@ -58,7 +376,7 @@ internal static partial class Program
     // With the spiral the jet is a thick tube from its rounded base: its radius follows (z + JetBase)^0.55.
     const float JetBase = 12f;
     // Blobs (jetKnots) reach a quarter further out and swell well past the jet's width.
-    static readonly float KnotLen = JetKnots > 0f ? 1.25f : 1f, KnotWide = JetKnots > 0f ? 2.5f + JetKnotGrowth : 1f;
+    static readonly float KnotLen = JetKnots > 0f ? 1.6f : 1f, KnotWide = JetKnots > 0f ? 2.5f + JetKnotGrowth : 1f;
     static readonly float BaseBound = MathF.Max(Outer * 1.25f + 8f, JetStrength > 0
         ? MathF.Sqrt(Sq(JetLength * KnotLen) + MathF.Pow(3f * JetWidth * KnotWide * MathF.Pow(JetLength * KnotLen + JetBase * JetSpiral, 0.55f), 2f)) + 4f : 0f);
     static float Bound = BaseBound;
@@ -140,12 +458,19 @@ internal static partial class Program
         Time = args.Length > 5 ? float.Parse(args[5]) : 0f;
 
         SkyOn = Environment.GetEnvironmentVariable("BH_SKY") == "1";   // a starfield behind, lensed by the hole
+        Tex = TextureFile.Load(Environment.GetEnvironmentVariable("BH_TEXTURE"));
+        TexMode = Tex != null ? EnvFloat("BH_TEXMODE", 1f) : 0f;
+        TexStrength = EnvFloat("BH_TEXSTRENGTH", 1f);
+        TexShape = EnvFloat("BH_TEXSHAPE", 0.5f);
+        InitStream();
         // Camera looking at the hole from 'distance' horizon radii, 'inclination' from the disk normal.
         Vector3 camPos = new Vector3(0, MathF.Cos(inclination), -MathF.Sin(inclination)) * distance;
         Vector3 forward = Vector3.Normalize(-camPos);
         Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
         if (float.IsNaN(right.X)) right = Vector3.UnitX;
         Vector3 up = Vector3.Cross(forward, right);
+        float roll = EnvFloat("BH_ROLL", 0f) * MathF.PI / 180f;   // the camera turned about its view
+        (right, up) = (right * MathF.Cos(roll) + up * MathF.Sin(roll), up * MathF.Cos(roll) - right * MathF.Sin(roll));
         float tanY = MathF.Tan(EnvFloat("BH_FOV", 60f) * 0.5f * MathF.PI / 180f), tanX = tanY * w / h;   // vertical field of view
         PixelAngle = 2f * tanY / h;
 
@@ -205,6 +530,13 @@ internal static partial class Program
             float r = x.Length();
             rMin = MathF.Min(rMin, r);
             if (r < 1f) { captured = true; LastExit = "captured"; break; }
+            float starStep = 1e9f;
+            if (CompanionR > 0f && InCompanion(x, out Vector3 cn, out starStep))
+            {
+                // The companion star the shader draws (a planet pack's is the game's body), lensed like everything else.
+                color += transmittance * CompanionSurface(cn, Vector3.Normalize(v));
+                captured = true; LastExit = "companion"; break;
+            }
             if (r > Bound * 1.001f && Vector3.Dot(x, v) > 0) { LastExit = "escaped"; break; }
             float nearPlane = MathF.Abs(Vector3.Dot(x, N));
             // A disk bigger than DetailRadius: its clumps, and so the steps, grow with the radius out there. Smaller disks
@@ -214,13 +546,17 @@ internal static partial class Program
             float dt = Math.Clamp(MathF.Min(0.08f * r, 0.35f * MathF.Max(nearPlane, 0.3f * Thickness * r)), 0.004f, dtCap);
             // Fine steps inside the cloud layer: about three per clump out where the clumps are big.
             if (nearPlane < 5f * ThickNow * r && r < OuterNow * 1.2f) dt = MathF.Min(dt, 0.2f * grain * MathF.Min(grain, 3f));
-            if (JetNow > 0 && nearPlane > 1.1f * (1f - JetSpiral) && nearPlane < JetLengthNow * (JetKnots > 0f ? 1.25f : 1f))   // and inside the jets
+            if (JetNow > 0 && nearPlane > 1.1f * (1f - JetSpiral) && nearPlane < JetLengthNow * (JetKnots > 0f ? 1.6f : 1f))   // and inside the jets
             {
                 float jetR = JetWidth * MathF.Pow(nearPlane + JetBase * JetSpiral, 0.55f);
-                if ((x - Vector3.Dot(x, N) * N).Length() < (JetKnots > 0f ? 7f : 3f) * jetR) dt = MathF.Min(dt, (0.35f - 0.15f * JetSpiral) * jetR);
+                if ((x - Vector3.Dot(x, N) * N).Length() < (JetKnots > 0f ? 7f : 3f) * jetR) dt = MathF.Min(dt, (JetKnots > 0f ? 0.12f : 0.35f - 0.15f * JetSpiral - 0.12f * Math.Clamp((JetStrandSharpness - 1f) / 5f, 0f, 1f)) * jetR);   // blobs' thin shells and fine threads need finer steps
             }
             float tdeK = 0f, envK = 0f; Vector3 tdeEmit = Vector3.Zero, tdeGlow = Vector3.Zero, envEmit = Vector3.Zero;
             if (TdeOn) dt = MathF.Min(dt, MathF.Max(TdeSample(x, Vector3.Normalize(v), traveled, out tdeK, out tdeEmit, out tdeGlow, out envK, out envEmit), 0.0005f));
+            float streamLimit;
+            Vector3 streamGlow = StreamSample(x, traveled * PixelAngle, out streamLimit, out float streamK, out Vector3 streamColor);
+            dt = MathF.Min(dt, MathF.Max(streamLimit, 0.0005f));
+            if (CompanionR > 0f) dt = MathF.Min(dt, starStep);
             if (k == 0) dt *= Jitter;
             if (envK > 0f)
             {
@@ -235,6 +571,13 @@ internal static partial class Program
             color += transmittance * hazeColor * (Glow * (1f - StreakGlowDim * Streaks * SmoothStep(StreakFrom, StreakFull, FaceOn)) * DiskPresence * (1f + 3f * LaunchFlash) * 0.03f * MathF.Exp(-(r - 1f) / 2.2f)) * dt;
             AccumulateDisk(MainDisk(), x, v, dt, traveled, ref color, ref transmittance);
             AccumulateJets(x, v, dt, ref color, ref transmittance);
+            {
+                // The companion's stream onto the disk: its tube, exact for a uniform step (it is often opaque), and the glows.
+                float sa = 1f - MathF.Exp(-streamK * dt);
+                color += transmittance * (streamColor * sa + streamGlow * dt);
+                transmittance *= 1f - sa;
+            }
+            color += transmittance * CompanionGlare((x - CompanionPos).Length()) * dt;
             if (tdeK > 0f || tdeGlow != Vector3.Zero)
             {
                 // Exact for a uniform slab: the event's gas is often far too opaque for emission * dt.
@@ -263,6 +606,7 @@ internal static partial class Program
 
         // The sky behind, seen along the bent ray: in the game this is KSP's skybox (lensed by Singularity).
         if (SkyOn && !captured) color += transmittance * StarSky(Vector3.Normalize(v)) / Brightness;
+        if (!captured) color += transmittance * EnvVec("BH_BG", Vector3.Zero) / Brightness;   // a background haze (preview only)
         color = Tonemap(color * Brightness);
         color = new Vector3(LinearToSrgb(color.X), LinearToSrgb(color.Y), LinearToSrgb(color.Z));
         return new Vector4(color, captured ? 1f : 1f - transmittance);
@@ -314,12 +658,15 @@ internal static partial class Program
         if (re < d.Inner * 0.8f || re > d.Outer * 1.1f) return 0f;
         float ht = d.Thick * re;
         if (MathF.Abs(height) > 3f * ht) return 0f;
-        float outerFade = 1 - SmoothStep(d.Outer * 0.35f, d.Outer, re); // outer disk thins into translucent wisps
+        // The outer disk thins into translucent wisps, or (diskEdge) ends in a crisp edge.
+        float edgeAmount = EnvFloat("BH_EDGE", 0f);
+        float outerFade = (1 - SmoothStep(d.Outer * 0.35f, d.Outer, re)) * (1 - edgeAmount) + (1 - SmoothStep(d.Outer * 0.93f, d.Outer, re)) * edgeAmount;
         // Seen from above the inner rim fades in softly, so the dark centre has a soft edge.
         float radial = SmoothStep(d.Inner * 0.85f, d.Inner * (1.1f + StreakSoftRim * d.Face), re) * outerFade * outerFade;
         if (d.MaskSoft > 0f)
             radial *= SmoothStep(d.MaskIn - d.MaskSoft, d.MaskIn + d.MaskSoft, re) * (1f - SmoothStep(d.MaskOut - d.MaskSoft, d.MaskOut + d.MaskSoft, re));
         if (radial <= 0) return 0f;
+        radial *= HoleGapFactor(re);   // rings (gaps), as a dusty disk's
 
         float phi = MathF.Atan2(Vector3.Dot(q, d.B), Vector3.Dot(q, d.T));
         float angle = phi - d.Angle;
@@ -460,8 +807,18 @@ internal static partial class Program
             hot = Vector3.Lerp(hot, tint * (Luma(hot) / MathF.Max(Luma(tint), 1e-4f)), DiskTint);
         }
         float partBrightness = InnerBrightness + (OuterBrightness - InnerBrightness) * span;
+        if (Tex != null && TexMode > 0.5f)
+        {
+            Vector3 tp = ToDiskFrame(d, x);
+            Vector4 tx = TexAt(tp.X, tp.Y, MathF.Sqrt(tp.X * tp.X + tp.Y * tp.Y), d.Inner, d.Outer);
+            hot = TexColor(hot, tx);
+            density *= TexShapeOf(tx);
+        }
         float shade = 0.3f + 0.7f * lightTransmittance;
-        Vector3 thermal = hot * (MathF.Pow(temperature / d.Peak, 3) * EmissionStrength * (0.6f + 1.4f * knots) * shade * exposure);
+        // diskEvenness (display): the cooler outer disk shown as bright as the hottest part, keeping its clumps.
+        float glowFall = MathF.Pow(temperature / d.Peak, 3);
+        glowFall += (MathF.Pow(temperature / MathF.Max(DiskTemperature(r, d.Inner, d.Peak), 1f), 3) - glowFall) * DiskEvenness;
+        Vector3 thermal = hot * (glowFall * EmissionStrength * (0.6f + 1.4f * knots) * shade * exposure);
         Vector3 lightColor = outer > 0f ? Vector3.Lerp(hot, Saturate(Blackbody(d.Peak * 0.8f)), MathF.Min(outer, 1f)) : hot;
         Vector3 scattered = lightColor * (incident * lightTransmittance * phase * 0.4f);
         color += transmittance * (thermal + scattered) * (d.Bright * beaming * density * lane * dt * partBrightness);
@@ -492,7 +849,7 @@ internal static partial class Program
         }
         float start = 1.1f * (1f - JetSpiral);                                                       // the spiral tube starts at the hole
         float knotAmount = JetKnots;
-        if (az < start || az > JetLengthNow * (knotAmount > 0f ? 1.25f : 1f)) return;
+        if (az < start || az > JetLengthNow * (knotAmount > 0f ? 1.6f : 1f)) return;
         Vector3 perp = x - z * N;
         float rho = perp.Length();
         float R = JetWidth * MathF.Pow(az + JetBase * JetSpiral, 0.55f);
@@ -519,9 +876,15 @@ internal static partial class Program
         // The swirl changes how brightly the gas glows, not how much it absorbs, so it still shows where the column is thick.
         float u = Math.Clamp((az - start) / (0.85f * R), 0f, 1f);
         float cap = MathF.Max(MathF.Sqrt(u * (2f - u)), 1e-3f);                                      // rounded end
-        float column = MathF.Exp(-MathF.Pow(s / (0.85f * cap), 10f));
-        float swirl = 0.5f + 0.5f * MathF.Cos(12f * phi - twist + 1.5f * n);
+        // Sharp strands (jetStrandSharpness 1 to 6) turn the solid column into separate threads with dark gaps between,
+        // the column's edge softening into wisps.
+        float threads = Math.Clamp((JetStrandSharpness - 1f) / 5f, 0f, 1f);
+        float column = MathF.Exp(-MathF.Pow(s / (0.85f * cap), 10f + (3f - 10f) * threads));
+        // Strands, thinner the sharper; as threads they wander, and split into filaments at several radii, like hair.
+        float swirl = MathF.Pow(0.5f + 0.5f * MathF.Cos(JetStrands * phi - twist + (1.5f + 1.5f * threads) * n), JetStrandSharpness);
+        swirl *= 1f + (MathF.Pow(0.5f + 0.5f * MathF.Cos(6f * s + 3f * n), 0.5f * JetStrandSharpness) - 1f) * threads;
         float streaks = 0.7f + (0.6f * swirl - 0.3f) * SmoothStep(0.15f, 0.6f, s);                   // on the surface, not the axis
+        streaks += (0.08f + 1.8f * swirl * SmoothStep(0.1f, 0.5f, s) - streaks) * threads;   // not on the axis, where the threads all meet
         // The glow fades out halfway along; the gas carries on as a darker, smoky plume.
         float glowFade = 1f - SmoothStep(JetLengthNow * 0.3f, JetLengthNow * 0.75f, az);
         float spiralGlow = column * streaks * (0.9f + 0.2f * n) * glowFade;
@@ -541,13 +904,14 @@ internal static partial class Program
             float moved = JetFlow * Time;
             float k0 = MathF.Floor((MathF.Pow(az, 0.45f) - moved) / spacing - side);
             float blob = 0f;
-            for (int j = 0; j < 2; j++)   // the blobs either side, so big ones overlap rather than cut off
+            for (int j = -1; j < 3; j++)   // the blobs round it (each at most 1.2 spacings across), so they overlap rather than cut off
             {
                 float kq = k0 + j;
                 float zc = MathF.Pow(MathF.Max((kq + side) * spacing + moved, 1e-3f), 1f / 0.45f);
                 float seed = kq * 12.9898f + side * 78.233f;
                 float hb = Frac(MathF.Sin(seed) * 43758.5453f), hx = Frac(MathF.Sin(seed + 1.7f) * 43758.5453f), hy = Frac(MathF.Sin(seed + 3.1f) * 43758.5453f);
                 float Rb = JetWidth * MathF.Pow(zc + JetBase * JetSpiral, 0.55f) * (0.7f + 1.0f * JetKnotGrowth * zc / len) * (0.75f + 0.5f * hb);
+                Rb = MathF.Min(Rb, 1.2f * spacing * MathF.Pow(zc, 0.55f) / 0.45f);
                 float wx = (hx - 0.5f) * 0.7f * Rb, wy = (hy - 0.5f) * 0.7f * Rb;
                 var local = new Vector3(Vector3.Dot(perp, t) - wx, Vector3.Dot(perp, bb) - wy, az - zc) / Rb;
                 var seedOffset = new Vector3(kq * 3.7f, side * 9.1f, Time * 0.05f);
@@ -559,7 +923,7 @@ internal static partial class Program
                 float front = 0.3f + 0.7f * SmoothStep(-0.5f, 0.7f, local.Z);   // the bow-shaped leading cap
                 blob += (MathF.Exp(-shellD * shellD) * front * (0.5f + wisps * wisps) + 0.25f * MathF.Exp(-coreD * coreD)) * (0.6f + 0.8f * hb);
             }
-            float fade = MathF.Pow(2f / MathF.Max(az, 2f), 0.6f) * (1f - SmoothStep(len * 0.95f, len * 1.25f, az));
+            float fade = MathF.Pow(2f / MathF.Max(az, 2f), 0.6f) * (1f - SmoothStep(len * 0.9f, len * 1.35f, az));
             blob *= 3f * fade;
             density += (blob - density) * knotWeight;
             gas += (blob * 0.5f - gas) * knotWeight;   // glowing plasma: they hide little behind them
@@ -678,14 +1042,18 @@ internal static partial class Program
         return Frac(p.X * p.Y * p.Z * (p.X + p.Y + p.Z));
     }
 
+    // BlackHole.shader's Noise3 reads its lattice from a 3D texture, 64 to a side and repeating: the same here.
+    static float Lattice(Vector3 c) => Hash3(new Vector3(Wrap64(c.X), Wrap64(c.Y), Wrap64(c.Z)));
+    static float Wrap64(float v) => v - 64f * MathF.Floor(v / 64f);
+
     static float Noise3(Vector3 x)
     {
         Vector3 i = new Vector3(MathF.Floor(x.X), MathF.Floor(x.Y), MathF.Floor(x.Z));
         Vector3 f = x - i;
         f = f * f * (new Vector3(3f) - 2f * f);
-        float L(float a, float b, float t) => a + (b - a) * t;
-        return L(L(L(Hash3(i), Hash3(i + new Vector3(1, 0, 0)), f.X), L(Hash3(i + new Vector3(0, 1, 0)), Hash3(i + new Vector3(1, 1, 0)), f.X), f.Y),
-                 L(L(Hash3(i + new Vector3(0, 0, 1)), Hash3(i + new Vector3(1, 0, 1)), f.X), L(Hash3(i + new Vector3(0, 1, 1)), Hash3(i + new Vector3(1, 1, 1)), f.X), f.Y), f.Z);
+        float n000 = Lattice(i), n100 = Lattice(i + Vector3.UnitX), n010 = Lattice(i + Vector3.UnitY), n110 = Lattice(i + new Vector3(1, 1, 0));
+        float n001 = Lattice(i + Vector3.UnitZ), n101 = Lattice(i + new Vector3(1, 0, 1)), n011 = Lattice(i + new Vector3(0, 1, 1)), n111 = Lattice(i + Vector3.One);
+        return Lerp(Lerp(Lerp(n000, n100, f.X), Lerp(n010, n110, f.X), f.Y), Lerp(Lerp(n001, n101, f.X), Lerp(n011, n111, f.X), f.Y), f.Z);
     }
 
     static float Fbm(Vector3 p)

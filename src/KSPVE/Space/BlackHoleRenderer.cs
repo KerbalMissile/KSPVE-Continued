@@ -40,6 +40,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     private static readonly int JetId = Shader.PropertyToID("_KSPVE_BHJet");
     private static readonly int Jet2Id = Shader.PropertyToID("_KSPVE_BHJet2");
     private static readonly int JetKnotsId = Shader.PropertyToID("_KSPVE_BHJetKnots");
+    private static readonly int Jet3Id = Shader.PropertyToID("_KSPVE_BHJet3");
     private static readonly int RayId = Shader.PropertyToID("_KSPVE_BHRay");
     private static readonly int OptionsId = Shader.PropertyToID("_KSPVE_BHOptions");
     private static readonly int RectId = Shader.PropertyToID("_KSPVE_BHRect");
@@ -97,6 +98,49 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     private static readonly int ObjFieldId = Shader.PropertyToID("_KSPVE_ObjField");
     private static readonly int ObjNeutron2Id = Shader.PropertyToID("_KSPVE_ObjNeutron2");
     private static readonly int ObjGalaxyId = Shader.PropertyToID("_KSPVE_ObjGalaxy");
+    // Mass transfer from a companion (RocheStream), and custom textures.
+    private static readonly int StreamId = Shader.PropertyToID("_KSPVE_Stream");
+    private static readonly int StreamInfoId = Shader.PropertyToID("_KSPVE_StreamInfo");
+    private static readonly int StreamCenterId = Shader.PropertyToID("_KSPVE_StreamCenter");
+    private static readonly int StreamColorId = Shader.PropertyToID("_KSPVE_StreamColor");
+    private static readonly int TexId = Shader.PropertyToID("_KSPVE_Tex");
+    private static readonly int TexInfoId = Shader.PropertyToID("_KSPVE_TexInfo");
+    private const int StreamBallistic = 24, StreamPoints = 25;   // BlackHole.shader's STREAM_POINTS: 1 out of the star, 24 falling (the winding on is a spiral)
+    private const int StreamEaseKeep = 16;   // of the fall's points, kept before it is eased into its winding
+    private readonly Vector4[] _stream = new Vector4[StreamPoints];
+    private int _streamImpact;
+    private Vector4 _companion, _companionLobe, _companionAxis;
+    // The stream's winding in (BlackHole.shader's _KSPVE_StreamSpiral, _KSPVE_StreamSpiral2, _KSPVE_StreamFrame) and the
+    // sphere holding all of it.
+    private Vector4 _streamSpiral, _streamSpiral2, _streamFrame, _streamBound, _streamLook, _streamLook2, _streamLook3;
+    // Its winding drawn by hand (BlackHole.shader's STREAM_DRAWN), and the last drawing read.
+    private readonly Vector4[] _streamDrawn = new Vector4[StreamShape.MaxPoints];
+    private string _drawnText;
+    private List<Double3> _drawnPoints = new List<Double3>();
+    private static readonly int StreamInfo2Id = Shader.PropertyToID("_KSPVE_StreamInfo2");
+    private static readonly int StreamImpactId = Shader.PropertyToID("_KSPVE_StreamImpact");
+    private static readonly int CompanionId = Shader.PropertyToID("_KSPVE_Companion");
+    private static readonly int CompanionLookId = Shader.PropertyToID("_KSPVE_CompanionLook");
+    private static readonly int CompanionLobeId = Shader.PropertyToID("_KSPVE_CompanionLobe");
+    private static readonly int StreamSpiralId = Shader.PropertyToID("_KSPVE_StreamSpiral");
+    private static readonly int StreamSpiral2Id = Shader.PropertyToID("_KSPVE_StreamSpiral2");
+    private static readonly int StreamFrameId = Shader.PropertyToID("_KSPVE_StreamFrame");
+    private static readonly int StreamLookId = Shader.PropertyToID("_KSPVE_StreamLook");
+    private static readonly int StreamLook2Id = Shader.PropertyToID("_KSPVE_StreamLook2");
+    private static readonly int StreamLook3Id = Shader.PropertyToID("_KSPVE_StreamLook3");
+    private static readonly int StreamDrawnId = Shader.PropertyToID("_KSPVE_StreamDrawn");
+    private static readonly int CompanionAxisId = Shader.PropertyToID("_KSPVE_CompanionAxis");
+    private static readonly int NoiseId = Shader.PropertyToID("_KSPVE_Noise");
+    private static Texture3D _noise;
+    // The stream's path in the binary's frame depends only on the mass ratio and where it stops: worked out once per change.
+    private readonly Dictionary<BlackHoleDefinition, StreamCache> _streamCache = new Dictionary<BlackHoleDefinition, StreamCache>();
+    private static readonly Dictionary<string, Texture2D> Textures = new Dictionary<string, Texture2D>();
+
+    private sealed class StreamCache
+    {
+        public double Q = -1.0, Stop = -1.0;
+        public List<Double3> Path;
+    }
     // Steps more for an object round a black hole: its rays are bent, in short steps near the horizon.
     private const int HostedExtraSteps = 150;
     // A comet's motion is taken over this long (s of game time), relative to its star.
@@ -164,6 +208,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 }
             }
             if (_buffer == null) _buffer = new CommandBuffer { name = "KSPVE Black Holes" };
+            Shader.SetGlobalTexture(NoiseId, NoiseTexture());   // the noise every effect samples (BlackHole.shader's Noise3)
             _buffer.Clear();
 
             Transform view = _camera.transform;
@@ -215,6 +260,10 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 float core = (float)(hole.BoundRadius > 0 ? hole.BoundRadius : kindBound);
                 TdeFrame tde = isHole ? TidalDisruptions.FrameFor(hole) : null;
                 float bound = tde != null ? Mathf.Max(core, (float)tde.Extent) : core;
+                // A companion's stream reaches out to its L1 point.
+                bool hasStream = hole.Kind == SpaceObjectKind.BlackHole || hole.Kind == SpaceObjectKind.NeutronStar;
+                float streamReach = hasStream ? StreamPath(hole, body, shaderMeters, time, out _) : 0f;
+                bound = Mathf.Max(bound, streamReach);
                 if (!ScreenRect(center, bound * horizon, view, tanX, tanY, margin, out Vector4 rect)) continue;
                 // A star at the centre of a dusty disk hides the disk behind it.
                 bool depth = Occluders(body, center, bound * horizon, view.position, inverseScale, horizon, SpaceObjects.BodyHidesObject(hole.Kind) && host == null) > 0;
@@ -250,11 +299,12 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 block.SetVector(MaskId, new Vector4((float)disk.MaskInner, (float)disk.MaskOuter, (float)disk.MaskSoftness, 0f));
                 // How high the camera sits above the disk's plane, seen from the hole: the streak look fades in with it.
                 double elevation = Math.Asin(Math.Min(1.0, Math.Abs(Vector3.Dot(-center.normalized, normal)))) * 180.0 / Math.PI;
-                block.SetVector(StreakId, new Vector4((float)BlackHoleSettings.StreakView(hole.DiskStreaks, elevation), (float)hole.OuterGlow, 0f, 0f));
+                block.SetVector(StreakId, new Vector4((float)BlackHoleSettings.StreakView(hole.DiskStreaks, elevation, hole.StreaksFrom, hole.StreaksFull), (float)hole.OuterGlow, (float)hole.DiskEdge, (float)hole.DiskEvenness));
                 block.SetVector(FormId, new Vector4((float)disk.Presence, (float)disk.Brightness, (float)disk.Spiral, (float)disk.JetHeads));
                 block.SetVector(LookId, new Vector4((float)hole.PeakTemperature, (float)(hole.Brightness * engine.Post.BlackHoleBrightness), rotation, (float)(time % 10000.0)));
                 // The swirl keeps the configured pitch and flow as a young jet grows out to its full length.
                 block.SetVector(JetId, new Vector4((float)disk.Jets, (float)disk.JetLength, (float)hole.JetWidth, (float)hole.JetSpeed));
+                block.SetVector(Jet3Id, new Vector4((float)hole.JetStrands, (float)hole.JetStrandSharpness, 0f, 0f));
                 block.SetVector(JetKnotsId, new Vector4((float)hole.JetKnots, (float)hole.JetKnotStart, (float)hole.JetKnotSpacing, (float)hole.JetKnotGrowth));
                 block.SetVector(Jet2Id, new Vector4((float)hole.JetSpiral, (float)BlackHoleSettings.JetTwistRate(hole.JetTurns, hole.JetLength),
                     (float)BlackHoleSettings.JetFlowRate(hole.JetFlow, hole.JetLength), (float)hole.JetAbsorb));
@@ -267,6 +317,9 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 block.SetVector(TintOuterId, Rgb(hole.OuterColor));
                 block.SetVector(JetColorId, Rgb(hole.JetColor));
                 block.SetVector(RingColorId, Rgb(hole.PhotonRingColor));
+                SetStream(block, hole, body, shaderMeters, time, hasStream);
+                if (isHole) block.SetVector(ObjShapeId, new Vector4(0f, SetGaps(block, hole), 0f, 0f));   // the hole's disk's rings
+                SetTexture(block, hole);
                 block.SetVector(AdvancedId, new Vector4((float)hole.DiskDensity, (float)hole.DiskOpacity, (float)hole.Emission, (float)hole.CloudSize));
                 block.SetVector(Advanced2Id, new Vector4((float)hole.SelfShadow, (float)hole.InnerLight, (float)hole.StreakWinding, (float)hole.StreakStretch));
                 block.SetVector(Advanced3Id, new Vector4((float)hole.StreakLanes, (float)hole.ParticleSpacing, 0f, 0f));
@@ -312,9 +365,8 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
         }
     }
 
-    /// <summary>The uniforms of another kind of object (fragObject); sizes in shader units (<paramref name="shaderMeters"/> each).</summary>
-    private void SetObject(MaterialPropertyBlock block, BlackHoleDefinition h, CelestialBody body, double starUnits, double shaderMeters,
-        double holeUnits, double holeReach)
+    /// <summary>The object's ring gaps (DiskGaps; a black hole's disk can have them too), worked out when their settings change.</summary>
+    private int SetGaps(MaterialPropertyBlock block, BlackHoleDefinition h)
     {
         if (!_gapCache.TryGetValue(h, out GapCache cache)) _gapCache[h] = cache = new GapCache();
         if (cache.Count < 0 || cache.Inner != h.DiskInner || cache.Outer != h.DiskOuter || cache.Rings != h.Rings || cache.Depth != h.RingDepth
@@ -329,6 +381,14 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
         for (int i = 0; i < DiskGaps.Max; i++)
             _gapVectors[i] = i < gaps ? new Vector4((float)cache.Gaps[i].Radius, (float)cache.Gaps[i].Width, (float)cache.Gaps[i].Depth, 0f) : Vector4.zero;
         block.SetVectorArray(ObjGapsId, _gapVectors);
+        return gaps;
+    }
+
+    /// <summary>The uniforms of another kind of object (fragObject); sizes in shader units (<paramref name="shaderMeters"/> each).</summary>
+    private void SetObject(MaterialPropertyBlock block, BlackHoleDefinition h, CelestialBody body, double starUnits, double shaderMeters,
+        double holeUnits, double holeReach)
+    {
+        int gaps = SetGaps(block, h);
         block.SetVector(ObjKindId, new Vector4((float)(int)h.Kind, (float)starUnits, (float)h.StarTemperature, (float)h.SurfaceTemperature));
         block.SetVector(ObjShapeId, new Vector4((float)h.Flaring, gaps, 0f, 0f));
         block.SetVector(ObjOuterDustId, Rgb(h.OuterDustColor));
@@ -345,7 +405,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
         block.SetVector(ObjDisk2Id, new Vector4((float)h.DensityFalloff, (float)h.EdgeSoftness, (float)h.Clumps, (float)h.ClumpSize));
         block.SetVector(ObjDisk3Id, new Vector4((float)h.ScatterAsymmetry, (float)h.RimGlow, (float)h.RimTemperature, (float)h.RockSpread));
         block.SetVector(ObjSpiralId, new Vector4((float)h.SpiralArms, (float)h.SpiralStrength, (float)h.SpiralWinding, (float)h.RockSizeSpread));
-        block.SetVector(ObjCloud2Id, new Vector4((float)h.CloudStretch, (float)h.CloudRagged, (float)h.CloudFill, 0f));
+        block.SetVector(ObjCloud2Id, new Vector4((float)h.CloudStretch, (float)h.CloudRagged, (float)h.CloudFill, (float)(int)h.GasType));
         block.SetVector(ObjFieldId, new Vector4((float)Math.Round(h.FieldLineCount), (float)Math.Round(h.FieldShells), (float)h.FieldShellRatio, (float)h.FieldLineWidth));
         block.SetVector(ObjNeutron2Id, new Vector4((float)h.ColumnWidth, (float)h.BeamWidth, (float)h.Hotspots, 0f));
         block.SetVector(ObjGalaxyId, new Vector4((float)h.BulgeSize, (float)h.BulgeBrightness, (float)h.BarLength, (float)h.StarClusters));
@@ -377,10 +437,233 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
 
     private static Vector4 Rgb(Double3 c) => new Vector4((float)c.X, (float)c.Y, (float)c.Z, 1f);
 
+    /// <summary>
+    /// The companion's stream for <paramref name="h"/> in shader units round the hole, into <see cref="_stream"/> (and the
+    /// drawn companion into <see cref="_companion"/>): from a planet pack's body (companion), placed by the game, or a
+    /// star the shader draws (companionDistance), placed by its settings. Returns the distance out to the companion's far
+    /// side (0 without one).
+    /// </summary>
+    private float StreamPath(BlackHoleDefinition h, CelestialBody body, double shaderMeters, double time, out int count)
+    {
+        count = 0;
+        _companion = Vector4.zero;
+        _companionLobe = Vector4.zero;
+        double aUnits, q;
+        Vector3d ex, ey;
+        CelestialBody companion = BlackHoles.BodyNamed(h.Companion);
+        if (companion != null && companion != body && body.gravParameter > 0.0)
+        {
+            Vector3d sep = companion.position - body.position;
+            double a = sep.magnitude;
+            if (a <= 0.0) return 0f;
+            q = companion.gravParameter / body.gravParameter;
+            aUnits = a / shaderMeters;
+            // The binary's frame now: x from the hole to the companion, y the companion's motion round it.
+            double ut = Planetarium.GetUniversalTime();
+            Vector3d rel0 = companion.getTruePositionAtUT(ut) - body.getTruePositionAtUT(ut);
+            Vector3d rel1 = companion.getTruePositionAtUT(ut + CometVelocityStep) - body.getTruePositionAtUT(ut + CometVelocityStep);
+            ex = sep / a;
+            Vector3d vel = rel1 - rel0;
+            ey = vel - Vector3d.Dot(vel, ex) * ex;
+        }
+        else if (h.CompanionDistance > 0.0)
+        {
+            // A star the shader draws, round the disk's normal, going round the way the disk turns.
+            q = h.CompanionMassRatio;
+            aUnits = h.CompanionDistance * h.HorizonMeters(body) / shaderMeters;
+            Vector3d n = (Planetarium.Rotation * h.Normal).normalized;
+            Vector3d t = Vector3d.Cross(n, Math.Abs(n.y) < 0.99 ? Vector3d.up : Vector3d.right).normalized, b = Vector3d.Cross(n, t);
+            double spin = h.Spin < 0 ? -1.0 : 1.0;
+            double turn = h.CompanionPeriod > 0.0 ? 2.0 * Math.PI * (time / h.CompanionPeriod % 1.0) * spin : 0.0;
+            double phi = h.CompanionAngle * Math.PI / 180.0 + turn, theta = h.CompanionHeight * Math.PI / 180.0;
+            ex = (t * Math.Cos(phi) + b * Math.Sin(phi)) * Math.Cos(theta) + n * Math.Sin(theta);
+            ey = Vector3d.Cross(n, ex) * spin;
+            // Filling its Roche lobe (companionRadius 0) it is drawn out to a point at L1, the farthest of it from its centre.
+            bool fills = h.CompanionRadius <= 0.0;
+            double radius = fills ? RocheStream.LobeRadius(q) * aUnits : h.CompanionRadius * h.HorizonMeters(body) / shaderMeters;
+            double l1 = RocheStream.L1FromCompact(q);
+            _companion = new Vector4((float)(ex.x * aUnits), (float)(ex.y * aUnits), (float)(ex.z * aUnits), (float)(fills ? Math.Max((1.0 - l1) * aUnits, radius) : radius));
+            _companionLobe = new Vector4(fills ? (float)q : 0f, (float)l1, fills ? (float)RocheStream.LobePotential(q) : 0f, (float)radius);
+        }
+        else return 0f;
+        if (ey.sqrMagnitude < 1e-20) ey = Vector3d.Cross(ex, Math.Abs(ex.y) < 0.9 ? Vector3d.up : Vector3d.right);
+        ey = (ey - Vector3d.Dot(ey, ex) * ex).normalized;
+        Vector3d axis = Vector3d.Cross(ex, ey).normalized;
+        _companionAxis = new Vector4((float)axis.x, (float)axis.y, (float)axis.z, 0f);
+
+        // It strikes the disk's edge, or streamRing (or swings round at its closest approach when that is smaller), then
+        // winds on in round the hole streamTurns times.
+        double stop = (h.StreamRing > 0.0 ? h.StreamRing : h.DiskOuter) / aUnits;
+        if (!_streamCache.TryGetValue(h, out StreamCache cache)) _streamCache[h] = cache = new StreamCache();
+        if (cache.Path == null || Math.Abs(cache.Q - q) > 1e-4 * Math.Max(q, 1e-9) || Math.Abs(cache.Stop - stop) > 1e-4 * Math.Max(stop, 1e-9))
+        {
+            cache.Q = q;
+            cache.Stop = stop;
+            cache.Path = RocheStream.Path(q, stop, StreamBallistic);
+            if (_streamCache.Count > 64) _streamCache.Clear();
+        }
+        // What it winds on as: worked out (a spiral, from an eighth of a turn round, the fall eased into it there) or drawn
+        // by hand (the fall eased into the drawing's start).
+        RocheStream.StreamSpiral spiral = RocheStream.SpiralOf(cache.Path, h.StreamTurns, h.StreamSpiralTo, h.StreamCurve);
+        if (!string.Equals(_drawnText, h.StreamShape, StringComparison.Ordinal))
+        {
+            _drawnText = h.StreamShape;
+            _drawnPoints = StreamShape.Resample(StreamShape.Parse(h.StreamShape), StreamShape.MaxPoints);
+        }
+        int drawn = _drawnPoints.Count >= 2 ? Math.Min(_drawnPoints.Count, StreamShape.MaxPoints) : 0;
+        List<Double3> fall = cache.Path;
+        if (drawn > 0)
+            fall = RocheStream.EaseInto(cache.Path, StreamEaseKeep, _drawnPoints[0] * spiral.R0, _drawnPoints[1] - _drawnPoints[0], StreamBallistic - StreamEaseKeep);
+        else if (spiral.Turns > 0.0)
+        {
+            double t0 = Math.Min(RocheStream.EaseAngle / (2.0 * Math.PI * spiral.Turns), 0.5);
+            fall = RocheStream.EaseInto(cache.Path, StreamEaseKeep, spiral.At(t0), spiral.DirectionAt(t0), StreamBallistic - StreamEaseKeep);
+            spiral = spiral.From(t0);
+        }
+        count = Math.Min(fall.Count + 1, StreamPoints);
+        _streamImpact = count - 1;
+        // Out of the star: a funnel of gas from inside it out to L1, wide where it leaves the star, then a broad bridge
+        // tapering as it falls, so the star is seen pouring into the stream. (A sphere, the body or a drawn star of a size
+        // set by hand, stops short of L1; drawn filling its Roche lobe it reaches L1 itself, the funnel hidden inside it.)
+        bool fillsLobe = _companionLobe.x > 0f;
+        double starR = fillsLobe ? _companionLobe.w
+            : _companion.w > 0f ? _companion.w : companion != null && companion != body ? companion.Radius / shaderMeters : 0.0;
+        double from = fillsLobe ? starR : Math.Min(starR, (1.0 - cache.Path[0].X) * aUnits);
+        double bridge = h.StreamBridge * from;
+        float reach = _companion.w > 0f ? (float)aUnits + 1.2f * _companion.w : 0f;
+        for (int i = 1; i < count; i++)
+        {
+            Double3 p = fall[i - 1];
+            Vector3d w = (ex * p.X + ey * p.Y) * aUnits;
+            double u = Math.Min((double)(i - 1) / Math.Max(_streamImpact - 1, 1), 1.0);
+            float width = (float)Math.Max(0.5 * h.StreamWidth * aUnits * (1.0 + 1.5 * u), bridge * (1.0 - u));   // as wide on round the disk as where it struck
+            _stream[i] = new Vector4((float)w.x, (float)w.y, (float)w.z, width);
+            reach = Mathf.Max(reach, (float)w.magnitude + 3f * width);
+        }
+        Vector3d inside = ex * (aUnits - 0.6 * from);
+        _stream[0] = new Vector4((float)inside.x, (float)inside.y, (float)inside.z, Mathf.Max((float)(0.5 * from), _stream[1].w));
+        reach = Mathf.Max(reach, (float)inside.magnitude + 3f * _stream[0].w);
+
+        // Winding on in: a spiral the shader works out exactly, as wide as where it joins it, tapering as it closes in; or as
+        // drawn by hand (streamShape), in units of the radius where it strikes.
+        float fallLength = 0f;
+        for (int i = 0; i + 1 < count; i++) fallLength += Vector3.Distance(_stream[i], _stream[i + 1]);
+        float w0 = _stream[count - 1].w, w1 = (float)h.StreamTaper * w0;
+        double drawnScale = cache.Path[cache.Path.Count - 1].Length * aUnits;
+        for (int k = 0; k < drawn; k++)
+        {
+            Vector3d w = (ex * _drawnPoints[k].X + ey * _drawnPoints[k].Y) * drawnScale;
+            _streamDrawn[k] = new Vector4((float)w.x, (float)w.y, (float)w.z, Mathf.Lerp(w0, w1, k / (drawn - 1f)));
+            reach = Mathf.Max(reach, (float)w.magnitude + 3f * w0);
+        }
+        _streamSpiral = new Vector4((float)(spiral.R0 * aUnits), (float)(spiral.R1 * aUnits), drawn > 0 ? 0f : (float)(2.0 * Math.PI * spiral.Turns), (float)spiral.A0);
+        _streamSpiral2 = new Vector4((float)spiral.Sense, w0, w1, fallLength);
+        _streamFrame = new Vector4((float)ex.x, (float)ex.y, (float)ex.z, 0f);
+        _streamLook = new Vector4((float)h.StreamFlatness, (float)h.StreamOpacity, (float)h.StreamFlowLines, (float)h.StreamFlowScale);
+        _streamLook2 = new Vector4((float)h.StreamFray, (float)spiral.Curve, (float)h.CompanionPull, drawn);
+        _streamLook3 = new Vector4((float)h.StreamHeat, 0f, 0f, 0f);
+        reach = Mathf.Max(reach, (float)(spiral.R0 * aUnits) + 3f * w0);
+
+        // The sphere holding all of it, so rays far from it skip the stream at once.
+        Vector3 center = Vector3.zero;
+        for (int i = 0; i < count; i++) center += (Vector3)_stream[i];
+        center /= count;
+        float boundRadius = 0f;
+        for (int i = 0; i < count; i++) boundRadius = Mathf.Max(boundRadius, Vector3.Distance(center, _stream[i]) + 4f * _stream[i].w);
+        for (int k = 0; k < drawn; k++) boundRadius = Mathf.Max(boundRadius, Vector3.Distance(center, _streamDrawn[k]) + 4f * w0);
+        if (spiral.Turns > 0.0 && drawn == 0)
+            for (int k = 0; k <= 64; k++)
+            {
+                Double3 p = spiral.At(k / 64.0);
+                boundRadius = Mathf.Max(boundRadius, Vector3.Distance(center, (Vector3)((ex * p.X + ey * p.Y) * aUnits)) + 4f * w0);
+            }
+        _streamBound = new Vector4(center.x, center.y, center.z, boundRadius);
+        return reach;
+    }
+
+    private void SetStream(MaterialPropertyBlock block, BlackHoleDefinition h, CelestialBody body, double shaderMeters, double time, bool hasStream)
+    {
+        int count = 0;
+        if (hasStream) StreamPath(h, body, shaderMeters, time, out count);
+        else _companion = Vector4.zero;
+        block.SetVector(CompanionId, _companion);
+        block.SetVector(CompanionLobeId, _companionLobe);
+        block.SetVector(CompanionAxisId, _companionAxis);
+        block.SetVector(CompanionLookId, new Vector4((float)h.CompanionTemperature, (float)h.CompanionBrightness, (float)h.CompanionSpots, (float)h.CompanionGlare));
+        if (count < 2)
+        {
+            block.SetVector(StreamInfoId, Vector4.zero);
+            return;
+        }
+        block.SetVectorArray(StreamId, _stream);
+        block.SetVector(StreamInfoId, new Vector4(count, (float)h.StreamBrightness, (float)h.HotSpot, _streamBound.w));
+        block.SetVector(StreamInfo2Id, new Vector4(_streamImpact / (count - 1f), 0f, 0f, 0f));
+        block.SetVector(StreamImpactId, _stream[_streamImpact]);
+        block.SetVector(StreamCenterId, _streamBound);
+        block.SetVector(StreamSpiralId, _streamSpiral);
+        block.SetVector(StreamSpiral2Id, _streamSpiral2);
+        block.SetVector(StreamFrameId, _streamFrame);
+        block.SetVector(StreamLookId, _streamLook);
+        block.SetVector(StreamLook2Id, _streamLook2);
+        block.SetVector(StreamLook3Id, _streamLook3);
+        block.SetVectorArray(StreamDrawnId, _streamDrawn);
+        block.SetVector(StreamColorId, Rgb(h.StreamColor));
+    }
+
+    /// <summary>The value-noise lattice the shader samples (Noise3): Hash3 at whole-number points, 64 to a side, repeating.</summary>
+    private static Texture3D NoiseTexture()
+    {
+        if (_noise != null) return _noise;
+        const int n = 64;
+        var tex = new Texture3D(n, n, n, TextureFormat.RFloat, false) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Bilinear, name = "KSPVE noise" };
+        var pixels = new Color[n * n * n];
+        for (int z = 0; z < n; z++)
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                    pixels[x + n * (y + n * z)] = new Color(Hash3(x, y, z), 0f, 0f, 1f);
+        tex.SetPixels(pixels);
+        tex.Apply(false, true);
+        _noise = tex;
+        return tex;
+    }
+
+    /// <summary>BlackHole.shader's Hash3, at a lattice point.</summary>
+    private static float Hash3(float x, float y, float z)
+    {
+        x = Frac(x * 0.3183099f + 0.1f) * 17f;
+        y = Frac(y * 0.3183099f + 0.1f) * 17f;
+        z = Frac(z * 0.3183099f + 0.1f) * 17f;
+        return Frac(x * y * z * (x + y + z));
+    }
+
+    private static float Frac(float v) => v - Mathf.Floor(v);
+
+    /// <summary>The object's custom texture (any image in GameData, as KSP loaded it), or white when it has none.</summary>
+    private static void SetTexture(MaterialPropertyBlock block, BlackHoleDefinition h)
+    {
+        Texture2D tex = TextureOf(h.Texture);
+        block.SetTexture(TexId, tex != null ? tex : Texture2D.whiteTexture);
+        block.SetVector(TexInfoId, tex != null
+            ? new Vector4((float)(int)h.TextureMapping, (float)h.TextureStrength, (float)h.TextureShape, 0f)
+            : Vector4.zero);
+    }
+
+    /// <summary>A texture GameData holds, by its path without the extension (cached; null when there is none).</summary>
+    public static Texture2D TextureOf(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        if (Textures.TryGetValue(path, out Texture2D cached)) return cached;
+        Texture2D tex = GameDatabase.Instance != null ? GameDatabase.Instance.GetTexture(path.Replace('\\', '/'), false) : null;
+        if (tex != null) tex.wrapMode = TextureWrapMode.Clamp;
+        else Log.Warning($"Texture '{path}' is not in GameData (give its path from GameData, without the extension).");
+        Textures[path] = tex;
+        return tex;
+    }
+
     /// <summary>Radius (horizon radii) of the sphere holding a black hole's disk and jets (blobs included).</summary>
     private static double HoleBound(BlackHoleDefinition h) =>
         Math.Max(h.DiskOuter * 1.25 + 8.0, h.Jets > 0
-            ? BlackHoleSettings.JetBound(h.JetLength * (h.JetKnots > 0 ? 1.25 : 1.0), h.JetWidth * (h.JetKnots > 0 ? 2.5 + h.JetKnotGrowth : 1.0), h.JetSpiral)
+            ? BlackHoleSettings.JetBound(h.JetLength * (h.JetKnots > 0 ? 1.6 : 1.0), h.JetWidth * (h.JetKnots > 0 ? 2.5 + h.JetKnotGrowth : 1.0), h.JetSpiral)
             : 0.0);
 
     /// <summary>The black hole drawn on a body, if any (the other objects round it are lensed by it).</summary>

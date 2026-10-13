@@ -19,6 +19,23 @@ public enum SpaceObjectKind
     Galaxy = 7
 }
 
+/// <summary>A nebula's kind of gas (BlackHole.shader numbers them the same way).</summary>
+public enum NebulaGas
+{
+    Emission = 0,
+    Reflection = 1,
+    Dark = 2,
+    SupernovaRemnant = 3,
+    Pillars = 4
+}
+
+/// <summary>How a custom texture is laid over an object.</summary>
+public enum TextureMode
+{
+    TopDown = 1,
+    Ramp = 2
+}
+
 /// <summary>
 /// The other kinds of object a KSPVE_BLACKHOLE node can draw round its body, all in the shader, with nothing for KSP to
 /// track: a neutron star with its disk, accretion columns, beams and magnetic field lines; a protoplanetary disk with its

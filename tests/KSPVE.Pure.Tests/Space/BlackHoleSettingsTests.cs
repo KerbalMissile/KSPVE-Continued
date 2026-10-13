@@ -100,6 +100,8 @@ public class BlackHoleSettingsTests
         Assert.That(BlackHoleSettings.StreakView(1.0, 47.5), Is.EqualTo(0.5).Within(1e-9), "half way up, half the look");
         Assert.That(BlackHoleSettings.StreakView(1.0, 90.0), Is.EqualTo(1.0), "straight down: all of it");
         Assert.That(BlackHoleSettings.StreakView(0.4, 90.0), Is.EqualTo(0.4).Within(1e-9));
+        Assert.That(BlackHoleSettings.StreakView(1.0, 20.0, 0.0, 40.0), Is.EqualTo(0.5).Within(1e-9), "streaksFrom and streaksFull move the fade");
+        Assert.That(BlackHoleSettings.StreakView(1.0, 45.0, 0.0, 40.0), Is.EqualTo(1.0));
         double previous = 0.0;
         for (double e = 0.0; e <= 90.0; e += 1.0)
         {
