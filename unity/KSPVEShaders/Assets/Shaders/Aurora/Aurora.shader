@@ -199,8 +199,14 @@ Shader "Hidden/KSPVE/Aurora/Aurora"
                 float lo = max(length(o), 1.0);
                 float alt = lo - gR;
                 float dark = Darkness(dot(o / lo, gSun));
+                // Above the air the eye adapts to the dark only inside the planet's shadow: a sunlit viewer (or one who
+                // sees the sunlit limb from just past the terminator) is exposed for daylight, and airglow and aurora
+                // stay as faint as they really are.
+                float sunAlong = dot(o, gSun);
+                float off = length(o - gSun * sunAlong);
+                float shadow = sunAlong < 0.0 ? 1.0 - SS(gR * 0.98, gR * 1.02, off) : 0.0;
                 float ground = 1.0 - SS(20.0 * Km, 120.0 * Km, alt);
-                return 1.0 + (dark - 1.0) * ground;
+                return lerp(shadow, dark, ground);
             }
 
             float ExposureAt(float3 p, float viewerDark)

@@ -312,11 +312,12 @@ Shader "Hidden/KSPVE/Stars/Star"
                 return float4(0.55 * vis, 1.0, 0.68, 0.22);                         // EUV: gold
             }
 
-            // Absorption by structures, per view: 0 in the eye (a prominence is no thicker than this in white light), the whole of it in H-alpha.
+            // Absorption by structures, per view: 0 in the eye (a prominence is no thicker than this in white light), half in
+            // H-alpha (the loops are drawn larger than life by LoopSize, so their full depth would cover the disc), a quarter in EUV.
             float AbsorptionScale()
             {
                 int view = (int)(_KSPVE_StarLook.z + 0.5);
-                return view == 0 ? 0.0 : (view == 1 ? 1.0 : 0.35);
+                return view == 0 ? 0.0 : (view == 1 ? 0.5 : 0.25);
             }
 
             // The shape of a loop system: footpoints a and b (unit vectors) joined by an elliptical arch of apex height h.
@@ -582,6 +583,9 @@ Shader "Hidden/KSPVE/Stars/Star"
                     float3 n = normalize(ro + rd * tSurf);
                     float spotDark;
                     float3 surface = Surface(n, rd, footprint, spotDark);
+                    // A filament dims the disc behind it, but no further than H-alpha filaments do (0.6-0.8 of the
+                    // disc's brightness): many overlapping ones must not black the star out.
+                    absorb = max(absorb, 0.7);
                     result = surface * absorb + emission;
                     alpha = _KSPVE_StarFlags.x > 0.5 ? 1.0 : 0.0;
                     if (alpha < 0.5) result = emission;

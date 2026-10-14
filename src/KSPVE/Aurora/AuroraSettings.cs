@@ -27,7 +27,7 @@ internal static class AuroraSettings
     /// The camera the dark-adapted view is exposed like: ISO, f-number and shutter time. A photographer's aurora shot is
     /// ISO 3200-6400, f/1.4-2.8, 5-15 s, some 5 million times the light of a bright day's exposure (see NightExposure).
     /// </summary>
-    public static double NightIso = 6400.0, NightAperture = 1.8, NightShutter = 10.0;
+    public static double NightIso = 1600.0, NightAperture = 2.0, NightShutter = 2.0;
     /// <summary>Size of the march's buffer as a fraction of the screen (it is smooth, and accumulated over frames).</summary>
     public static double Resolution = 0.5;
     /// <summary>How much of the last frames is kept (temporal accumulation, 0 = none).</summary>
@@ -95,8 +95,9 @@ internal static class AuroraSettings
     public static void Reset()
     {
         Enabled = Arcs = Diffuse = Pulsating = Black = Proton = PolarCap = Sar = Steve = Global = Crustal = Footprints = Airglow = true;
-        AuroraBoost = AirglowBoost = 1.0;
-        NightIso = 6400.0; NightAperture = 1.8; NightShutter = 10.0;
+        AuroraBoost = 1.0;
+        AirglowBoost = 1.0;
+        NightIso = 1600.0; NightAperture = 2.0; NightShutter = 2.0;
         Resolution = 0.5; Smoothing = 0.75;
     }
 

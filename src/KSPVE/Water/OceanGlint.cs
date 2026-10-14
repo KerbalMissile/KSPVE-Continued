@@ -125,8 +125,11 @@ internal sealed class OceanGlintRenderer
             _block.SetVector("_KSPVE_SkyZenith", new Vector4(sunColor.r * (float)zenith.X, sunColor.g * (float)zenith.Y, sunColor.b * (float)zenith.Z, 0f));
             _block.SetVector("_KSPVE_SkyHorizon", new Vector4(sunColor.r * (float)horizon.X, sunColor.g * (float)horizon.Y, sunColor.b * (float)horizon.Z, 0f));
             _block.SetVector("_KSPVE_Deep", new Vector4(0f, 0f, 0f, (float)WaterOptics.SeawaterIndex));
-            // Straight through the air twice (the sun's way down, the view's way up) the glint loses a share; clouds are not in this.
-            _block.SetVector("_KSPVE_GlintLook", new Vector4(1f, 1f, body.atmosphere ? 0.75f : 1f, 1f));
+            // Through the air twice (the sun's way down, the view's way up) the light is dimmed by the air's vertical optical
+            // depth: Earth's Rayleigh depth at 680, 550 and 440 nm plus a light haze, scaled by the surface pressure. Clouds are not in this.
+            float tau = (float)density;
+            _block.SetVector("_KSPVE_GlintLook", new Vector4(1f, 1f, 1f, 1f));
+            _block.SetVector("_KSPVE_GlintTau", new Vector4(tau * (0.045f + 0.08f), tau * (0.097f + 0.09f), tau * (0.236f + 0.1f), 0f));
             Matrix4x4 m = Matrix4x4.TRS(center, Quaternion.identity, Vector3.one * (float)(scaledRadius * 1.0004));
             Graphics.DrawMesh(_sphere, m, _material, ScaledLayer, _scaled, 0, _block, false, false, false);
         }

@@ -28,7 +28,8 @@ Shader "Hidden/KSPVE/Water/OceanGlint"
             float4 _KSPVE_BodyX;             // the body's turning frame as world axes (CloudWorld.Basis): x at latitude 0 longitude 0
             float4 _KSPVE_BodyY;             // north
             float4 _KSPVE_BodyZ;             // longitude 90 east
-            float4 _KSPVE_GlintLook;         // x: strength; y: brightness of the sky's grazing reflection; z: atmosphere transmittance of the sun's path (0..1); w: view path
+            float4 _KSPVE_GlintLook;         // x: strength; y: brightness of the sky's grazing reflection; z, w: unused
+            float4 _KSPVE_GlintTau;          // rgb: the air's vertical optical depth (Rayleigh and haze) at sea level
 
             struct appdata { float4 vertex : POSITION; };
 
@@ -65,11 +66,19 @@ Shader "Hidden/KSPVE/Water/OceanGlint"
                 float fresnel = KSPVEFresnel(cosV, n1);
                 // Cox and Munk's isotropic mean slope variance per axis.
                 float slopeVar = 0.5 * (0.003 + 0.00512 * wind);
-                float3 glint = KSPVEGlitter(n, V, sun, slopeVar, n1) * _KSPVE_GlintLook.x * _KSPVE_GlintLook.z;
-                // The sky seen off the sea near the limb, where the Fresnel reflectance grows.
+                float cosS = dot(n, sun);
+                // Through the air twice: the sun's way down and the view's way up (airmass of a curved atmosphere, which
+                // stays finite at the limb), so the glint and the sky's reflection fade into the haze towards the edge.
+                float3 tau = _KSPVE_GlintTau.rgb;
+                float3 viewT = exp(-tau / (cosV + 0.025));
+                float3 sunT = exp(-tau / (max(cosS, 0.0) + 0.025));
+                float3 glint = KSPVEGlitter(n, V, sun, slopeVar, n1) * _KSPVE_GlintLook.x * sunT;
+                // The sky seen off the sea near the limb, where the Fresnel reflectance grows. Its colours are the sky's
+                // with the sun 45 degrees up: the sky dims as the sun sinks and is dark after twilight.
                 float3 reflectDir = reflect(-V, n);
-                float3 sky = KSPVESky(reflectDir, n, sun) * fresnel * _KSPVE_GlintLook.y;
-                float3 col = (glint + sky) * mask.r * (1.0 - ice);
+                float skyLight = saturate((cosS + 0.1) / 0.1) * clamp(cosS / 0.7071, 0.02, 1.4);
+                float3 sky = KSPVESky(reflectDir, n, sun) * fresnel * _KSPVE_GlintLook.y * skyLight;
+                float3 col = (glint + sky) * viewT * mask.r * (1.0 - ice);
                 return float4(max(col, 0.0), 0.0);
             }
             ENDCG
