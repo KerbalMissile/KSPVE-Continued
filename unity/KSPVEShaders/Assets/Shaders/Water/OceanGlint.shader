@@ -58,6 +58,7 @@ Shader "Hidden/KSPVE/Water/OceanGlint"
                 float2 uv = float2(lon / (2.0 * KSPVE_PI) + 0.5, lat / KSPVE_PI + 0.5);
                 float3 mask = tex2D(_KSPVE_OceanMask, uv).rgb;
                 if (mask.r <= 0.01) discard;
+                float seaShare = smoothstep(0.1, 0.9, mask.r);   // coasts fade with the sea's share of the cell
                 float wind = mask.g * 40.0;
                 float ice = mask.b;
                 float3 sun = _KSPVE_SunDir.xyz;
@@ -78,7 +79,7 @@ Shader "Hidden/KSPVE/Water/OceanGlint"
                 float3 reflectDir = reflect(-V, n);
                 float skyLight = saturate((cosS + 0.1) / 0.1) * clamp(cosS / 0.7071, 0.02, 1.4);
                 float3 sky = KSPVESky(reflectDir, n, sun) * fresnel * _KSPVE_GlintLook.y * skyLight;
-                float3 col = (glint + sky) * viewT * mask.r * (1.0 - ice);
+                float3 col = (glint + sky) * viewT * seaShare * (1.0 - ice);
                 return float4(max(col, 0.0), 0.0);
             }
             ENDCG

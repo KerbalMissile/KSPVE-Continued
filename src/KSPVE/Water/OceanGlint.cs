@@ -43,10 +43,16 @@ internal sealed class OceanGlintRenderer
                 for (int k = 0; k < 16 && SampleCursor < Pixels.Length; k++, SampleCursor++)
                 {
                     int x = SampleCursor % MaskWidth, y = SampleCursor / MaskWidth;
-                    double lon = (x + 0.5) / MaskWidth * 360.0 - 180.0, lat = (y + 0.5) / MaskHeight * 180.0 - 90.0;
-                    bool sea = TerrainSampler.Altitude(Body, lat, lon) <= 0.0;
+                    // the sea's share of the cell from 2x2 samples, so coasts fade instead of showing the cells as blotches
+                    int seaCount = 0;
+                    for (int sy = 0; sy < 2; sy++)
+                        for (int sx = 0; sx < 2; sx++)
+                        {
+                            double lon = (x + 0.25 + 0.5 * sx) / MaskWidth * 360.0 - 180.0, lat = (y + 0.25 + 0.5 * sy) / MaskHeight * 180.0 - 90.0;
+                            if (TerrainSampler.Altitude(Body, lat, lon) <= 0.0) seaCount++;
+                        }
                     Color32 p = Pixels[SampleCursor];
-                    p.r = sea ? (byte)255 : (byte)0;
+                    p.r = (byte)(seaCount * 255 / 4);
                     Pixels[SampleCursor] = p;
                 }
                 Dirty = true;

@@ -546,7 +546,9 @@ Shader "Hidden/KSPVE/Stars/Star"
                     float4 o = _KSPVE_StarOcc[k];
                     if (o.w <= 0.0) continue;
                     float to0, to1;
-                    if (Sphere(0.0, dirW, o.xyz / radiusS, o.w / radiusS, to0, to1) && to0 < tOcc) tOcc = max(to0, 0.0);
+                    // only a body in front of the camera covers the star: a ray's line also meets bodies behind it (both hits
+                    // negative), which would black out every ray whose backward extension passes through them
+                    if (Sphere(0.0, dirW, o.xyz / radiusS, o.w / radiusS, to0, to1) && to1 > 0.0 && to0 < tOcc) tOcc = max(to0, 0.0);
                 }
 
                 float t0s, t1s;

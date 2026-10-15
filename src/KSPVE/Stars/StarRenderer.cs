@@ -297,6 +297,7 @@ internal sealed class StarRenderer : MonoBehaviour
             float r = (float)(b.Radius * inverseScale);
             float d = c.magnitude;
             if (d <= r || d >= starDistance) continue;
+            if (Vector3.Dot(c, starCenter) <= 0f) continue;   // behind the camera, away from the star: it cannot cover it
             double angle = Math.Asin(Math.Min(1.0, r / d));
             double separation = Math.Acos(Math.Max(-1.0, Math.Min(1.0, Vector3.Dot(c, starCenter) / (d * starDistance))));
             if (separation > starAngle * 4.5 + angle) continue;   // well clear of the disc and its inner corona
