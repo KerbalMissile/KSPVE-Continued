@@ -23,7 +23,7 @@ Shader "Hidden/KSPVE/Space/Structures"
         };
 
         StructuredBuffer<Particle> _KSPVE_St_Particles;
-        float4 _KSPVE_St_Center;      // xyz: the body's centre relative to the camera (scaled units)
+        float4 _KSPVE_St_Center;      // xyz: the body's centre relative to the camera (scaled units); w: its radius
         float4 _KSPVE_St_Sun;         // xyz: unit vector from the body towards the star (world); w: Henyey-Greenstein g
         float4 _KSPVE_St_StarColor;   // rgb: the star's colour (luminance 1); a: overall brightness (brightness times visibility boost)
         float4 _KSPVE_St_Look;        // x: radians per pixel, y: smallest particle (pixels), z: count
@@ -55,6 +55,22 @@ Shader "Hidden/KSPVE/Space/Structures"
             float extent = lerp(1.15, 2.3, p.soft);
             // Behind the camera, or nothing to draw: collapse the quad.
             bool hidden = view.z >= 0.0 || p.radius <= 0.0;
+            // Behind the body: the line of sight meets its sphere before the particle. Up close the body is drawn by the
+            // local camera, whose depth this pass does not have, so the test is made here.
+            float bodyR = _KSPVE_St_Center.w;
+            float3 bodyC = _KSPVE_St_Center.xyz;
+            float cc = dot(bodyC, bodyC) - bodyR * bodyR;
+            if (bodyR > 0.0 && cc > 0.0)
+            {
+                float dP = length(rel);
+                float bb = dot(rel / max(dP, 1e-9), bodyC);
+                float disc = bb * bb - cc;
+                if (disc > 0.0)
+                {
+                    float tHit = bb - sqrt(disc);
+                    if (tHit > 0.0 && tHit < dP - p.radius) hidden = true;
+                }
+            }
             float half = drawAngle * z * extent;
             view.xy += corner * half;
 

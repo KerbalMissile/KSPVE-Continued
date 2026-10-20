@@ -147,7 +147,9 @@ internal sealed class StructureRenderer : MonoBehaviour
         Double3 star = StructureLight.Blackbody(config.N("starTemperature"));
         double brightness = config.N("brightness") * config.N("visibilityBoost");
         slot.Block.SetBuffer(ParticlesId, slot.Buffer);
-        slot.Block.SetVector(CenterId, new Vector4(center.x, center.y, center.z, 0f));
+        // w: the body's radius (scaled units), so particles behind it are hidden even when the body is drawn by the local
+        // camera (close up), whose depth this scaled-space pass cannot see
+        slot.Block.SetVector(CenterId, new Vector4(center.x, center.y, center.z, (float)(body.Radius * inverseScale)));
         slot.Block.SetVector(SunId, new Vector4((float)sun.X, (float)sun.Y, (float)sun.Z, (float)config.N("scatterAsymmetry")));
         slot.Block.SetVector(StarColorId, new Vector4((float)star.X, (float)star.Y, (float)star.Z, (float)brightness));
         slot.Block.SetVector(LookId, new Vector4(pixelAngle, (float)config.N("minPixels"), count, 0f));
