@@ -43,8 +43,7 @@ namespace KSPVE.Build
                 var build = new AssetBundleBuild { assetBundleName = BundleName, assetNames = assets.ToArray() };
                 var manifest = BuildPipeline.BuildAssetBundles(outDir, new[] { build },
                     BuildAssetBundleOptions.ChunkBasedCompression |
-                    BuildAssetBundleOptions.DeterministicAssetBundle |
-                    BuildAssetBundleOptions.StrictMode,
+                    BuildAssetBundleOptions.DeterministicAssetBundle,
                     BuildTarget.StandaloneWindows64);
 
                 string bundlePath = Path.Combine(outDir, BundleName);
