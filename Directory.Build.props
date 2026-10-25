@@ -6,7 +6,7 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <Deterministic>true</Deterministic>
-    <Version>0.5.2</Version>
+    <Version>0.5.3</Version>
   </PropertyGroup>
   <!-- With KSPVE_BUILD_ROOT set (an environment variable), every project builds under that folder instead of its own
        bin/obj, so several builds can run side by side without locking each other's files. -->
