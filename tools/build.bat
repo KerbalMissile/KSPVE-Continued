@@ -85,7 +85,7 @@ set "VER="
 for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "$v=(Get-Content '%STAGE%\KSPVE.version' -Raw | ConvertFrom-Json).VERSION; '{0}.{1}.{2}' -f $v.MAJOR,$v.MINOR,$v.PATCH"`) do set "VER=%%V"
 if not defined VER ( echo Could not read version from KSPVE.version. & exit /b 1 )
 
-set "ZIP=%OUT%\KSPVE-%VER%.zip"
+set "ZIP=%OUT%\KSPVE-Reworked-%VER%.zip"
 del /q "%ZIP%" 2>nul
 pushd "%OUT%\package"
 tar -a -c -f "%ZIP%" GameData
