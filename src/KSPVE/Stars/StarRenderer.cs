@@ -21,7 +21,7 @@ namespace KSPVE.Stars;
 internal sealed class StarRenderer : MonoBehaviour
 {
     private const string ShaderName = "Hidden/KSPVE/Stars/Star";
-    private const int QuadVertices = 6, SpotMax = 24, StructureMax = 20, ShellMax = 3, OccluderMax = 8;
+    private const int QuadVertices = 6, StructureMax = 20, OccluderMax = 8;
     private const double MinPixelRadius = 2.0;
     private const int MaxStars = 4;
 
@@ -35,26 +35,16 @@ internal sealed class StarRenderer : MonoBehaviour
     private static readonly int MZId = Shader.PropertyToID("_KSPVE_StarMZ");
     private static readonly int RayId = Shader.PropertyToID("_KSPVE_StarRay");
     private static readonly int LookId = Shader.PropertyToID("_KSPVE_StarLook");
-    private static readonly int Look2Id = Shader.PropertyToID("_KSPVE_StarLook2");
-    private static readonly int FlagsId = Shader.PropertyToID("_KSPVE_StarFlags");
+    private static readonly int EclipseVeilId = Shader.PropertyToID("_KSPVE_StarEclipseVeil");
     private static readonly int CountsId = Shader.PropertyToID("_KSPVE_StarCounts");
-    private static readonly int TextureId = Shader.PropertyToID("_KSPVE_StarTexture");
-    private static readonly int SpotAId = Shader.PropertyToID("_KSPVE_StarSpotA");
-    private static readonly int SpotBId = Shader.PropertyToID("_KSPVE_StarSpotB");
-    private static readonly int SpotCId = Shader.PropertyToID("_KSPVE_StarSpotC");
-    private static readonly int SpotDId = Shader.PropertyToID("_KSPVE_StarSpotD");
     private static readonly int StrAId = Shader.PropertyToID("_KSPVE_StarStrA");
     private static readonly int StrBId = Shader.PropertyToID("_KSPVE_StarStrB");
     private static readonly int StrCId = Shader.PropertyToID("_KSPVE_StarStrC");
     private static readonly int StrDId = Shader.PropertyToID("_KSPVE_StarStrD");
-    private static readonly int ShellAId = Shader.PropertyToID("_KSPVE_StarShellA");
-    private static readonly int ShellBId = Shader.PropertyToID("_KSPVE_StarShellB");
     private static readonly int OccId = Shader.PropertyToID("_KSPVE_StarOcc");
 
     private readonly List<MaterialPropertyBlock> _blocks = new List<MaterialPropertyBlock>();
-    private readonly Vector4[] _spotA = new Vector4[SpotMax], _spotB = new Vector4[SpotMax], _spotC = new Vector4[SpotMax], _spotD = new Vector4[SpotMax];
     private readonly Vector4[] _strA = new Vector4[StructureMax], _strB = new Vector4[StructureMax], _strC = new Vector4[StructureMax], _strD = new Vector4[StructureMax];
-    private readonly Vector4[] _shellA = new Vector4[ShellMax], _shellB = new Vector4[ShellMax];
     private readonly Vector4[] _occ = new Vector4[OccluderMax];
     private readonly List<StarEntry> _stars = new List<StarEntry>();
     private readonly Dictionary<StarEntry, SceneCache> _scenes = new Dictionary<StarEntry, SceneCache>();
@@ -175,9 +165,6 @@ internal sealed class StarRenderer : MonoBehaviour
 
         StarView viewMode = StarSettings.View;
         bool prominences = profile.Prominences && StarSettings.Prominences;
-        bool spots = profile.Spots && StarSettings.Spots;
-        bool cmes = profile.Cmes && StarSettings.Cmes;
-        bool corona = profile.Corona && StarSettings.Corona;
 
         StarWorld.Basis(body, out Vector3 mx, out Vector3 my, out Vector3 mz);
         Vector3 toViewer = -center.normalized;
@@ -187,20 +174,18 @@ internal sealed class StarRenderer : MonoBehaviour
         float now = Time.realtimeSinceStartup;
         if (cache.Scene == null || now - cache.RealTime > 0.25f || Math.Abs(ut - cache.Ut) > 3600.0 * 6)
         {
-            cache.Scene = entry.Activity.Snapshot(ut, viewerModel, SpotMax, StructureMax, ShellMax);
+            cache.Scene = entry.Activity.Snapshot(ut, viewerModel, 0, StructureMax, 0, false);
             cache.RealTime = now;
             cache.Ut = ut;
         }
         StarScene scene = cache.Scene;
-        if (!spots) scene = WithoutSpots(scene);
-
-        // The bounding sphere: the corona's reach in this view, or a CME's shell, whichever is more.
+        // The bounding sphere covers the visible prominences and loops.
         float bound = viewMode == StarView.Eye ? 3.5f : 5.0f;
         float structures = 0f;
-        foreach (StarStructure st in scene.Structures) structures = Mathf.Max(structures, (float)(st.Height * StarSettings.LoopSize + (st.A - st.B).Length) + 1.2f);
+        foreach (StarStructure st in scene.Structures)
+            if (st.Kind == StructureKind.Arch)
+                structures = Mathf.Max(structures, (float)(st.Height * StarSettings.LoopSize + (st.A - st.B).Length) + 1.2f);
         bound = Mathf.Max(bound, structures);
-        if (cmes)
-            foreach (CmeShell sh in scene.Shells) bound = Mathf.Max(bound, (float)sh.Apex * 1.4f + 1f);
         if (!ScreenRect(center, bound * radius, view, tanX, tanY, margin, out Vector4 rect)) return false;
 
         // Bodies in front of the star, nearest first; and how much of the disc they leave.
@@ -219,61 +204,33 @@ internal sealed class StarRenderer : MonoBehaviour
         block.SetVector(MZId, mz);
         block.SetVector(RayId, new Vector4(tanX, tanY, bound, (float)(Time.unscaledTime % 100000.0)));
         block.SetVector(LookId, new Vector4((float)profile.Temperature, (float)profile.DiscRadiance, (float)(int)viewMode, (float)StarSettings.Visibility));
-        block.SetVector(Look2Id, new Vector4((float)Math.Min(scene.Activity, 1.5), corona ? 1f : 0f, (float)StarSettings.SurfaceDetail, veil));
-        block.SetVector(FlagsId, new Vector4(StarSettings.ReplaceSurface && profile.Photosphere ? 1f : 0f, prominences ? 1f : 0f, cmes ? 1f : 0f, (float)scene.StreamerSpread));
-        double turn = 2.0 * Math.PI * ((ut / profile.EquatorialRotationPeriod) % 1.0);
-        block.SetVector(TextureId, new Vector4((float)turn, (float)scene.FlareLevel, (float)StarActivity.MeanLatitude(scene.CyclePhase), (float)(profile.Seed % 997)));
+        block.SetFloat(EclipseVeilId, veil);
 
-        int spotCount = Mathf.Min(scene.Spots.Count, SpotMax);
-        for (int i = 0; i < spotCount; i++)
+        int structureCount = 0;
+        if (prominences)
         {
-            SpotGroup g = scene.Spots[i];
-            _spotA[i] = new Vector4((float)g.Dir.X, (float)g.Dir.Y, (float)g.Dir.Z, (float)g.HalfSeparation);
-            _spotB[i] = new Vector4((float)g.Axis.X, (float)g.Axis.Y, (float)g.Axis.Z, (float)g.UmbraRadius);
-            _spotC[i] = new Vector4((float)g.FaculaRadius, (float)g.Strength, (float)g.Flare, (float)(g.Seed % 997.0));
-            _spotD[i] = new Vector4((float)g.Age, 0f, 0f, 0f);
+            foreach (StarStructure structure in scene.Structures)
+            {
+                if (structure.Kind != StructureKind.Arch || structureCount >= StructureMax) continue;
+                StarStructure st = structure;
+                float size = (float)StarSettings.LoopSize;
+                st.Height *= size;
+                st.Width *= Mathf.Sqrt(size);
+                _strA[structureCount] = new Vector4((float)st.A.X, (float)st.A.Y, (float)st.A.Z, 0f);
+                _strB[structureCount] = new Vector4((float)st.B.X, (float)st.B.Y, (float)st.B.Z, (float)st.Height);
+                _strC[structureCount] = new Vector4((float)st.Width, (float)st.Ribbon, (float)st.Nest, (float)st.Brightness);
+                _strD[structureCount] = new Vector4((float)st.Opacity, (float)st.Erupt, (float)(st.Seed % 997.0), 0f);
+                structureCount++;
+            }
         }
-        int structureCount = prominences ? Mathf.Min(scene.Structures.Count, StructureMax) : 0;
-        for (int i = 0; i < structureCount; i++)
-        {
-            StarStructure st = scene.Structures[i];
-            float size = (float)StarSettings.LoopSize;
-            st.Height *= size;
-            st.Width *= Mathf.Sqrt(size);
-            _strA[i] = new Vector4((float)st.A.X, (float)st.A.Y, (float)st.A.Z, st.Kind == StructureKind.Arch ? 0f : 1f);
-            _strB[i] = new Vector4((float)st.B.X, (float)st.B.Y, (float)st.B.Z, (float)st.Height);
-            _strC[i] = new Vector4((float)st.Width, (float)st.Ribbon, (float)st.Nest, (float)st.Brightness);
-            _strD[i] = new Vector4((float)st.Opacity, (float)st.Erupt, (float)(st.Seed % 997.0), 0f);
-        }
-        int shellCount = cmes ? Mathf.Min(scene.Shells.Count, ShellMax) : 0;
-        for (int i = 0; i < shellCount; i++)
-        {
-            CmeShell sh = scene.Shells[i];
-            _shellA[i] = new Vector4((float)sh.Dir.X, (float)sh.Dir.Y, (float)sh.Dir.Z, (float)sh.Apex);
-            _shellB[i] = new Vector4((float)sh.HalfWidth, (float)(sh.Seed % 997.0), (float)sh.Core, 0f);
-        }
-        block.SetVector(CountsId, new Vector4(spotCount, structureCount, shellCount, 2f * tanY / Mathf.Max(_camera.pixelHeight, 1)));
-        block.SetVectorArray(SpotAId, _spotA);
-        block.SetVectorArray(SpotBId, _spotB);
-        block.SetVectorArray(SpotCId, _spotC);
-        block.SetVectorArray(SpotDId, _spotD);
+        block.SetVector(CountsId, new Vector4(0f, structureCount, 0f, 2f * tanY / Mathf.Max(_camera.pixelHeight, 1)));
         block.SetVectorArray(StrAId, _strA);
         block.SetVectorArray(StrBId, _strB);
         block.SetVectorArray(StrCId, _strC);
         block.SetVectorArray(StrDId, _strD);
-        block.SetVectorArray(ShellAId, _shellA);
-        block.SetVectorArray(ShellBId, _shellB);
         block.SetVectorArray(OccId, _occ);
         _buffer.DrawProcedural(Matrix4x4.identity, _material, 0, MeshTopology.Triangles, QuadVertices, 1, block);
         return true;
-    }
-
-    private static StarScene WithoutSpots(StarScene scene)
-    {
-        var copy = new StarScene { Time = scene.Time, Activity = scene.Activity, CyclePhase = scene.CyclePhase, StreamerSpread = scene.StreamerSpread, FlareLevel = 0.0 };
-        copy.Structures.AddRange(scene.Structures);
-        copy.Shells.AddRange(scene.Shells);
-        return copy;
     }
 
     /// <summary>

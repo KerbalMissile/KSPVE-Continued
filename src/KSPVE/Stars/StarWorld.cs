@@ -20,29 +20,22 @@ internal sealed class StarEntry
 }
 
 /// <summary>
-/// The player's display choices for star effects (and the global switches). View is a display setting: the realistic one is
-/// <see cref="StarView.Eye"/>; the default is the H-alpha telescope look (prominences and loops bright red-orange), because
-/// that is the look asked for.
+/// The player's display choices for stellar prominences and loops.
 /// </summary>
 internal static class StarSettings
 {
     public static bool Enabled = true;
     public static StarView View = StarView.HAlpha;
     /// <summary>
-    /// Multiplies the brightness of the prominences, loops, corona and CMEs in the chosen view. 1 is the view's own strength
-    /// (in the eye view that is the real one: a millionth of the disc for the corona). Display.
+    /// Multiplies the brightness of prominences and loops in the chosen view. 1 is the view's own strength. Display.
     /// </summary>
     public static double Visibility = 1.0;
-    /// <summary>Multiplies the contrast of the granulation (1 is real). Display.</summary>
-    public static double SurfaceDetail = 1.0;
-    /// <summary>Draw the photosphere over the game's own star surface (otherwise only what surrounds it is added).</summary>
     /// <summary>
     /// Scales the height and breadth of prominences and loops (display). Real active-region loops reach a few hundredths of the star's
     /// radius and big prominences a tenth to a third; 1 is real. The default 2.5 shows them near the size in the reference picture.
     /// </summary>
     public static double LoopSize = 2.5;
-    public static bool ReplaceSurface = true;
-    public static bool Spots = true, Prominences = true, Corona = true, Cmes = true;
+    public static bool Prominences = true;
 
     public const string UserNode = "KSPVE_STARS_USER";
 
@@ -51,10 +44,8 @@ internal static class StarSettings
         Enabled = true;
         View = StarView.HAlpha;
         Visibility = 1.0;
-        SurfaceDetail = 1.0;
         LoopSize = 2.5;
-        ReplaceSurface = true;
-        Spots = Prominences = Corona = Cmes = true;
+        Prominences = true;
     }
 
     /// <summary>Global keys of a KSPVE_STARS or KSPVE_STARS_USER node.</summary>
@@ -64,15 +55,9 @@ internal static class StarSettings
         if ((v = node.GetLast("enabled")) != null) Enabled = Flag(v, Enabled);
         if ((v = node.GetLast("view")) != null) View = ParseView(v, View);
         if ((v = node.GetLast("visibility")) != null) Visibility = Num(v, Visibility);
-        if ((v = node.GetLast("surfaceDetail")) != null) SurfaceDetail = Num(v, SurfaceDetail);
         if ((v = node.GetLast("loopSize")) != null) LoopSize = Num(v, LoopSize);
-        if ((v = node.GetLast("replaceSurface")) != null) ReplaceSurface = Flag(v, ReplaceSurface);
-        if ((v = node.GetLast("spots")) != null) Spots = Flag(v, Spots);
         if ((v = node.GetLast("prominences")) != null) Prominences = Flag(v, Prominences);
-        if ((v = node.GetLast("corona")) != null) Corona = Flag(v, Corona);
-        if ((v = node.GetLast("cmes")) != null) Cmes = Flag(v, Cmes);
         Visibility = Math.Max(Visibility, 0.0);
-        SurfaceDetail = Math.Max(SurfaceDetail, 0.0);
         LoopSize = Math.Max(LoopSize, 0.0);
     }
 
@@ -80,13 +65,8 @@ internal static class StarSettings
         .Add("enabled", Enabled ? "True" : "False")
         .Add("view", View.ToString())
         .Add("visibility", Visibility.ToString("0.###", CultureInfo.InvariantCulture))
-        .Add("surfaceDetail", SurfaceDetail.ToString("0.###", CultureInfo.InvariantCulture))
         .Add("loopSize", LoopSize.ToString("0.###", CultureInfo.InvariantCulture))
-        .Add("replaceSurface", ReplaceSurface ? "True" : "False")
-        .Add("spots", Spots ? "True" : "False")
-        .Add("prominences", Prominences ? "True" : "False")
-        .Add("corona", Corona ? "True" : "False")
-        .Add("cmes", Cmes ? "True" : "False");
+        .Add("prominences", Prominences ? "True" : "False");
 
     private static StarView ParseView(string text, StarView fallback)
     {

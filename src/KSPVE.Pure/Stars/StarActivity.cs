@@ -507,7 +507,7 @@ public sealed class StarActivity
     /// <paramref name="maxStructures"/> structures and <paramref name="maxSpots"/> spot groups, those that matter most when
     /// seen from <paramref name="toViewer"/> (a unit vector from the star towards the camera in the model frame).
     /// </summary>
-    public StarScene Snapshot(double ut, Double3 toViewer, int maxSpots = 24, int maxStructures = 20, int maxShells = 3)
+    public StarScene Snapshot(double ut, Double3 toViewer, int maxSpots = 24, int maxStructures = 20, int maxShells = 3, bool includeFilaments = true)
     {
         var scene = new StarScene { Time = ut, Activity = Level(ut), CyclePhase = Phase(ut) };
         scene.StreamerSpread = Math.Min(1.0, Shape(Phase(ut)) * Math.Min(CycleAmplitude(CycleIndex(ut)), 1.2));
@@ -638,7 +638,7 @@ public sealed class StarActivity
                 }
         }
 
-        if (_profile.Prominences)
+        if (_profile.Prominences && includeFilaments)
         {
             // Filaments, lifted and brightened in their last hours when they are about to erupt.
             foreach (StarFilament f in FilamentsAt(ut, 6.0 * 3600.0))

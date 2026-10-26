@@ -12,9 +12,7 @@ using UnityEngine;
 namespace KSPVE.Stars;
 
 /// <summary>
-/// Star activity: sunspots, faculae, prominences and coronal loops, the corona and CMEs on every star, a solar wind with
-/// real CMEs in it for the solar wind model (it sets <see cref="SpaceWeather.Source"/>), and the settings for both. The
-/// activity itself is <see cref="StarActivity"/>: stateless, from the game time and a seed.
+/// Stellar prominences and loops, with the star activity model retained for solar wind calculations.
 /// </summary>
 internal sealed class StarsFeature : Feature
 {
@@ -27,7 +25,7 @@ internal sealed class StarsFeature : Feature
 
     public override string Name => "Stars";
     public override int Order => 50;
-    public override string SettingsTitle => "Stars: activity, prominences, corona, CMEs";
+    public override string SettingsTitle => "Stars: prominences and loops";
 
     public override void Load(List<ConfigIssue> issues)
     {
@@ -82,26 +80,18 @@ internal sealed class StarsFeature : Feature
 
     public override void DrawSettings()
     {
-        StarSettings.Enabled = Gui.Toggle("Star effects", StarSettings.Enabled);
+        StarSettings.Enabled = Gui.Toggle("Prominences and loops", StarSettings.Enabled);
         if (!StarSettings.Enabled) return;
 
-        // The view is a display setting. Only "Eye" is realistic: in white light prominences and loops are about a
-        // ten-thousandth of the disc and the corona a millionth, visible only when something eclipses the disc.
         int view = Gui.Choice("View of the star's magnetic structures", (int)StarSettings.View, ViewNames, 3);
         if (view >= 0 && view < ViewNames.Length) StarSettings.View = (StarView)view;
         Gui.Note(StarSettings.View == StarView.Eye
-            ? "Realistic: the corona is a millionth of the disc and shows only in an eclipse."
+            ? "Realistic white-light prominences and loops."
             : StarSettings.View == StarView.HAlpha
-                ? "A hydrogen-alpha telescope's view (656.3 nm): prominences and loops glow red-orange, filaments are dark on the disc. Not what the eye sees."
-                : "An extreme-ultraviolet telescope's view (17.1 nm, shown in gold): hot coronal loops over a dim disc. Not what the eye sees.");
+                ? "A hydrogen-alpha telescope's view (656.3 nm): prominences and loops glow red-orange."
+                : "An extreme-ultraviolet telescope's view (17.1 nm, shown in gold): hot loops appear in gold.");
         StarSettings.Visibility = Gui.Slider("Magnetic structures visibility", StarSettings.Visibility, 0.0, 4.0);
-        StarSettings.SurfaceDetail = Gui.Slider("Granulation contrast (1 = real)", StarSettings.SurfaceDetail, 0.0, 4.0);
         StarSettings.LoopSize = Gui.Slider("Prominence and loop size (1 = real)", StarSettings.LoopSize, 0.5, 5.0);
-        StarSettings.ReplaceSurface = Gui.Toggle("Draw the photosphere over the game's star surface", StarSettings.ReplaceSurface);
-        StarSettings.Spots = Gui.Toggle("Sunspots and faculae", StarSettings.Spots);
-        StarSettings.Prominences = Gui.Toggle("Prominences, filaments and loops", StarSettings.Prominences);
-        StarSettings.Corona = Gui.Toggle("Corona", StarSettings.Corona);
-        StarSettings.Cmes = Gui.Toggle("Coronal mass ejections", StarSettings.Cmes);
 
         Gui.Header("The star now");
         if (FlightGlobals.fetch == null || FlightGlobals.Bodies == null || Planetarium.fetch == null)
