@@ -27,7 +27,7 @@ internal sealed class SettingsWindow : MonoBehaviour
 
     private bool _visible;
     private bool _hiddenForScreenshot;
-    private Rect _rect = new Rect(120, 120, 560, 760);
+    private Rect _rect = new Rect(120, 120, 700, 760);
     private Vector2 _scroll;
     private string _status = string.Empty;
     private int _openHole = -1; // black hole (or other object) whose panel is open
