@@ -5,7 +5,6 @@ using KSPVE.Core;
 using KSPVE.Pure.Config;
 using KSPVE.Pure.Numerics;
 using KSPVE.Pure.Space;
-using KSPVE.Pure.Space.Tde;
 using KSP.Localization;
 using UnityEngine;
 
@@ -65,8 +64,6 @@ internal sealed class BlackHoleDefinition
     public double DiskDragTimescale, DiskDragMaxAccel, DiskBuffeting, DiskLight;
     public bool Pulsar;
     public double BeamPeriod, BeamTilt;
-    /// <summary>No disk or jets until a tidal disruption builds them (TidalDisruptions).</summary>
-    public bool DiskFromTde;
 
     // The other kinds of object (BlackHoleSettings' keys of the same names).
     public double StarRadius, SurfaceTemperature, StarTemperature, FieldLines, AccretionColumns, Beams;
@@ -273,7 +270,6 @@ internal sealed class BlackHoleDefinition
         Pulsar = v.Get(BlackHoleSettings.Pulsar),
         BeamPeriod = v.Get(BlackHoleSettings.BeamPeriod),
         BeamTilt = v.Get(BlackHoleSettings.BeamTilt),
-        DiskFromTde = v.Get(BlackHoleSettings.DiskFromTde)
     };
 
     /// <summary>
@@ -305,7 +301,6 @@ internal sealed class BlackHoleDefinition
         .Add(BlackHoleSettings.NormalZ.Key, Num(Normal.z))
         .Add(BlackHoleSettings.BoundRadius.Key, Num(BoundRadius))
         .Add(BlackHoleSettings.Pulsar.Key, Bool(Pulsar))
-        .Add(BlackHoleSettings.DiskFromTde.Key, Bool(DiskFromTde))
         .Add(BlackHoleSettings.DiskInner.Key, Num(DiskInner))
         .Add(BlackHoleSettings.StarRadius.Key, Num(StarRadius))
         .Add(BlackHoleSettings.SurfaceTemperature.Key, Num(SurfaceTemperature))
@@ -649,7 +644,7 @@ internal sealed class BlackHoleDefinition
     /// </summary>
     public double HorizonMeters(CelestialBody body) => SpaceObjects.UnitMeters(Kind, HorizonRadiusMeters, body.Radius, BodyIsShadow, StarRadius);
 
-    /// <summary>A black hole (the other kinds neither drag nor light vessels, nor host a tidal disruption).</summary>
+    /// <summary>A black hole (the other kinds neither drag nor light vessels).</summary>
     public bool IsBlackHole => Kind == SpaceObjectKind.BlackHole;
 
     /// <summary>What the settings window calls it: the body, its kind unless a black hole, and its slot past the first.</summary>
@@ -960,9 +955,8 @@ internal static class BlackHoles
     /// The hole's disk and jets as they are now: as configured, or, with diskFromTde, as much of them as a tidal
     /// disruption has built (none without one).
     /// </summary>
-    public static DiskState StateOf(BlackHoleDefinition hole) => hole.DiskFromTde && hole.IsBlackHole
-        ? DiskState.Forming(TidalDisruptions.FrameFor(hole), hole.DiskInner, hole.DiskOuter, hole.DiskThickness, hole.Jets, hole.JetLength)
-        : DiskState.Configured(hole.DiskInner, hole.DiskOuter, hole.DiskThickness, hole.Jets, hole.JetLength);
+    public static DiskState StateOf(BlackHoleDefinition hole) =>
+        DiskState.Configured(hole.DiskInner, hole.DiskOuter, hole.DiskThickness, hole.Jets, hole.JetLength);
 
     public static void Update(SpaceRenderSettings profile, bool allowed)
     {

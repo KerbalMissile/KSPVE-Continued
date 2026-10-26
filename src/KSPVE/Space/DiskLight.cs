@@ -3,7 +3,6 @@ using KSPVE.Core;
 using KSPVE.Pure.ColorScience;
 using KSPVE.Pure.Numerics;
 using KSPVE.Pure.Space;
-using KSPVE.Pure.Space.Tde;
 using KSPVE.Pure.Space.Relativity;
 using UnityEngine;
 

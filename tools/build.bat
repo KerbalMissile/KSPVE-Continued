@@ -59,8 +59,8 @@ if "%UCODE%"=="0" if exist "%BUNDLE%" (
 echo Unity build FAILED [exit code %UCODE%]. Last log lines:
 if exist "%LOG%" (
   powershell -NoProfile -Command "Get-Content '%LOG%' -Tail 40"
-  findstr /i /r /c:"No valid Unity Editor license" /c:"not been activated with a valid License" /c:"Failed to activate/update license" /c:"LICENSE SYSTEM" "%LOG%" >nul && (
-    echo Unity needs its free Personal licence activated: sign in once via Unity Hub.
+  findstr /i /r /c:"No valid Unity Editor license" /c:"not been activated with a valid License" /c:"Failed to activate/update license" /c:"Current license is invalid" /c:"Machine identification is invalid" "%LOG%" >nul && (
+    echo Unity could not validate its license. Check Unity Hub licensing for this machine.
     exit /b 2
   )
 )

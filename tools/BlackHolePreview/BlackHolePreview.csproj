@@ -6,7 +6,6 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
-  <!-- The tidal disruption model, compiled straight from KSPVE.Pure (a net48 library) so previews run the real physics. -->
   <ItemGroup>
     <Compile Include="..\..\src\KSPVE.Pure\Numerics\Double3.cs" Link="Pure\Double3.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Config\CfgNode.cs" Link="Pure\CfgNode.cs" />
@@ -16,7 +15,6 @@
     <Compile Include="..\..\src\KSPVE.Pure\Config\SettingsSchema.cs" Link="Pure\SettingsSchema.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\Procedural\Pcg32.cs" Link="Pure\Pcg32.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\Relativity\SchwarzschildOrbit.cs" Link="Pure\SchwarzschildOrbit.cs" />
-    <Compile Include="..\..\src\KSPVE.Pure\Space\Tde\*.cs" LinkBase="Pure\Tde" />
     <!-- The other kinds of object: their settings, kinds' defaults and disk gaps, so previews read the configs. -->
     <Compile Include="..\..\src\KSPVE.Pure\Space\BlackHoleSettings.cs" Link="Pure\BlackHoleSettings.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\SpaceObjects.cs" Link="Pure\SpaceObjects.cs" />
@@ -28,7 +26,6 @@
     <Compile Include="..\..\src\KSPVE.Pure\Config\CfgParser.cs" Link="Pure\CfgParser.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Clouds\*.cs" LinkBase="Pure\Clouds" />
     <Compile Include="..\..\src\KSPVE.Pure\Textures\*.cs" LinkBase="Pure\Textures" />
-    <Compile Include="..\..\src\KSPVE.Pure\Climate\*.cs" LinkBase="Pure\Climate" />
     <!-- Structures made of particles on real orbits (evaporating planets, impact debris, synestias ...). -->
     <Compile Include="..\..\src\KSPVE.Pure\Space\Particles\*.cs" LinkBase="Pure\Particles" />
     <!-- The fluid-dynamics atmospheres of brown dwarfs (the browndwarf command). -->

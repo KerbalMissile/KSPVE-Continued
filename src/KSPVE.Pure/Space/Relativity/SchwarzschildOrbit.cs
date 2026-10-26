@@ -169,7 +169,7 @@ public sealed class SchwarzschildOrbit
     /// </summary>
     public double ChiAtTime(double t, out bool beyond) => ChiAtTime(Time, ChiEnd, Bound, t, out beyond);
 
-    /// <summary>The same inversion on any table with this node layout (the TDE interpolates tables between orbits).</summary>
+    /// <summary>The same inversion on any table with this node layout.</summary>
     public static double ChiAtTime(double[] time, double chiEnd, bool bound, double t, out bool beyond)
     {
         beyond = false;

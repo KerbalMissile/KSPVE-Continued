@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using KSPVE.Core;
 using KSPVE.Pure.Numerics;
 using KSPVE.Pure.Space;
-using KSPVE.Pure.Space.Tde;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -146,32 +145,6 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
     // A comet's motion is taken over this long (s of game time), relative to its star.
     private const double CometVelocityStep = 3600.0;
 
-    // The tidal disruption event (BlackHole.shader, TdeSample).
-    private const int TdeExtraSteps = 200;
-    private static readonly int TdeId = Shader.PropertyToID("_KSPVE_Tde");
-    private static readonly int TdeNormalId = Shader.PropertyToID("_KSPVE_TdeNormal");
-    private static readonly int TdeStarId = Shader.PropertyToID("_KSPVE_TdeStar");
-    private static readonly int TdeStarAxisId = Shader.PropertyToID("_KSPVE_TdeStarAxis");
-    private static readonly int TdeStarVelId = Shader.PropertyToID("_KSPVE_TdeStarVel");
-    private static readonly int TdeStarLookId = Shader.PropertyToID("_KSPVE_TdeStarLook");
-    private static readonly int TdeVertsId = Shader.PropertyToID("_KSPVE_TdeVerts");
-    private static readonly int TdeVertLookId = Shader.PropertyToID("_KSPVE_TdeVertLook");
-    private static readonly int TdeVertVelId = Shader.PropertyToID("_KSPVE_TdeVertVel");
-    private static readonly int TdeChunksId = Shader.PropertyToID("_KSPVE_TdeChunks");
-    private static readonly int TdeShockId = Shader.PropertyToID("_KSPVE_TdeShock");
-    private static readonly int TdeShockLookId = Shader.PropertyToID("_KSPVE_TdeShockLook");
-    private static readonly int TdeEnvId = Shader.PropertyToID("_KSPVE_TdeEnv");
-    private static readonly int TdeEnvKId = Shader.PropertyToID("_KSPVE_TdeEnvK");
-    private static readonly int TdeEnvTId = Shader.PropertyToID("_KSPVE_TdeEnvT");
-    private static readonly int TdeLightId = Shader.PropertyToID("_KSPVE_TdeLight");
-    private static readonly int TdeFlashId = Shader.PropertyToID("_KSPVE_TdeFlash");
-    private static readonly int TdeFlashLookId = Shader.PropertyToID("_KSPVE_TdeFlashLook");
-    private readonly Vector4[] _tdeVerts = new Vector4[TdeFrame.MaxVertices];
-    private readonly Vector4[] _tdeVertLook = new Vector4[TdeFrame.MaxVertices];
-    private readonly Vector4[] _tdeVertVel = new Vector4[TdeFrame.MaxVertices];
-    private readonly Vector4[] _tdeChunks = new Vector4[TdeFrame.MaxChunks];
-    private readonly float[] _tdeEnvK = new float[TdeFrame.EnvelopeBins];
-    private readonly float[] _tdeEnvT = new float[TdeFrame.EnvelopeBins];
     private readonly Vector4[] _occluders = new Vector4[MaxOccluders];
     private readonly float[] _occluderDistance = new float[MaxOccluders];
 
@@ -258,8 +231,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                         hole.FieldLines, hole.FieldShells, hole.FieldShellRatio, hole.Beams, hole.JetLength, hole.ComaSize,
                         hole.IonTailLength, hole.DustTailLength, hole.DustTailCurve);
                 float core = (float)(hole.BoundRadius > 0 ? hole.BoundRadius : kindBound);
-                TdeFrame tde = isHole ? TidalDisruptions.FrameFor(hole) : null;
-                float bound = tde != null ? Mathf.Max(core, (float)tde.Extent) : core;
+                float bound = core;
                 // A companion's stream reaches out to its L1 point.
                 bool hasStream = hole.Kind == SpaceObjectKind.BlackHole || hole.Kind == SpaceObjectKind.NeutronStar;
                 float streamReach = hasStream ? StreamPath(hole, body, shaderMeters, time, out _) : 0f;
@@ -309,9 +281,8 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 block.SetVector(Jet2Id, new Vector4((float)hole.JetSpiral, (float)BlackHoleSettings.JetTwistRate(hole.JetTurns, hole.JetLength),
                     (float)BlackHoleSettings.JetFlowRate(hole.JetFlow, hole.JetLength), (float)hole.JetAbsorb));
                 block.SetVector(ExtraId, new Vector4((float)hole.ColorSaturation, (float)(hole.Glow * disk.Presence * (1.0 + 3.0 * disk.LaunchFlash)), (float)hole.PhotonRing, (float)(hole.Particles * disk.Presence)));
-                block.SetVector(RayId, new Vector4(tanX, tanY, hole.Steps + (isHole ? BlackHoleSettings.ExtraSteps(disk.Outer) : 0) + (tde != null ? TdeExtraSteps : 0)
+                block.SetVector(RayId, new Vector4(tanX, tanY, hole.Steps + (isHole ? BlackHoleSettings.ExtraSteps(disk.Outer) : 0)
                     + (holeUnits > 0.0 ? HostedExtraSteps : 0), bound));
-                SetTde(block, tde, hole, core);
                 block.SetVector(TintId, new Vector4((float)hole.DiskTint, (float)hole.InnerBrightness, (float)hole.OuterBrightness, 0f));
                 block.SetVector(TintInnerId, Rgb(hole.InnerColor));
                 block.SetVector(TintOuterId, Rgb(hole.OuterColor));
@@ -681,69 +652,6 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
             for (int i = 0; i < drawn; i++)
                 if ((_passes[i] == MarchPass) == (pass == 0))
                     _buffer.DrawProcedural(Matrix4x4.identity, _material, _passes[i], MeshTopology.Triangles, QuadVertices, 1, _blocks[i]);
-    }
-
-    /// <summary>
-    /// The event's uniforms. The model works in the hole's inertial disk frame (built from the configured normal, which
-    /// is fixed in inertial space); it is carried into the world as the disk normal is, through Planetarium.Rotation.
-    /// </summary>
-    private void SetTde(MaterialPropertyBlock block, TdeFrame f, BlackHoleDefinition hole, float core)
-    {
-        if (f == null)
-        {
-            block.SetVector(TdeId, Vector4.zero);
-            return;
-        }
-        Vector3d ni = hole.Normal.normalized;
-        Vector3d ti = Vector3d.Cross(ni, Math.Abs(ni.y) < 0.99 ? new Vector3d(0, 1, 0) : new Vector3d(1, 0, 0)).normalized;
-        Vector3d bi = Vector3d.Cross(ni, ti);
-        var t = (Vector3)(Planetarium.Rotation * ti);
-        var b = (Vector3)(Planetarium.Rotation * bi);
-        var n = (Vector3)(Planetarium.Rotation * ni);
-        Vector3 World(Double3 d) => t * (float)d.X + b * (float)d.Y + n * (float)d.Z;
-        TdeParameters p = TidalDisruptions.Parameters;
-
-        Vector3 normal = World(f.OrbitNormal);
-        block.SetVector(TdeId, new Vector4(1f, f.VertexCount, f.ChunkCount, core));
-        block.SetVector(TdeNormalId, new Vector4(normal.x, normal.y, normal.z, 0f));
-        Vector3 star = World(f.StarCenter), axis = World(f.StarAxis), vel = World(f.StarVelocity);
-        block.SetVector(TdeStarId, new Vector4(star.x, star.y, star.z, f.StarVisible ? (float)f.StarPresence : 0f));
-        block.SetVector(TdeStarAxisId, new Vector4(axis.x, axis.y, axis.z, (float)f.StarLong));
-        block.SetVector(TdeStarVelId, new Vector4(vel.x, vel.y, vel.z, (float)f.StarShort));
-        block.SetVector(TdeStarLookId, new Vector4((float)f.StarTemperature, (float)f.StarTail, (float)p.StarGlow, 0f));
-        for (int i = 0; i < f.VertexCount; i++)
-        {
-            Vector3 pos = World(f.Position[i]), v = World(f.Velocity[i]);
-            _tdeVerts[i] = new Vector4(pos.x, pos.y, pos.z, (float)f.WidthA[i]);
-            _tdeVertLook[i] = new Vector4((float)f.Material[i], (float)f.Opacity[i], (float)f.Temperature[i], (float)f.WidthZ[i]);
-            // A negative brightness marks a break: no segment joins this vertex to the one before.
-            _tdeVertVel[i] = new Vector4(v.x, v.y, v.z, f.Break[i] ? -(float)f.Brightness[i] - 0.01f : (float)f.Brightness[i]);
-        }
-        for (int c = 0; c < f.ChunkCount; c++)
-        {
-            Vector3 cc = World(f.ChunkCenter[c]);
-            _tdeChunks[c] = new Vector4(cc.x, cc.y, cc.z, (float)f.ChunkRadius[c]);
-        }
-        block.SetVectorArray(TdeVertsId, _tdeVerts);
-        block.SetVectorArray(TdeVertLookId, _tdeVertLook);
-        block.SetVectorArray(TdeVertVelId, _tdeVertVel);
-        block.SetVectorArray(TdeChunksId, _tdeChunks);
-        Vector3 shock = World(f.ShockPosition);
-        block.SetVector(TdeShockId, new Vector4(shock.x, shock.y, shock.z, f.ShockVisible ? Mathf.Max((float)f.ShockLuminosity, 1e-6f) : 0f));
-        Vector3 spray = World(f.ShockDirection);
-        block.SetVector(TdeShockLookId, new Vector4(spray.x, spray.y, spray.z, (float)f.ShockRadius));
-        block.SetVector(TdeEnvId, new Vector4((float)f.EnvelopeInner, (float)f.EnvelopeLogSpan, (float)f.EnvelopeFunnel, f.EnvelopeVisible ? 1f : 0f));
-        for (int i = 0; i < TdeFrame.EnvelopeBins; i++)
-        {
-            _tdeEnvK[i] = (float)(f.EnvelopeOpacity[i] * p.EnvelopeOpacity);
-            _tdeEnvT[i] = (float)f.EnvelopeTemperature[i];
-        }
-        block.SetFloatArray(TdeEnvKId, _tdeEnvK);
-        block.SetFloatArray(TdeEnvTId, _tdeEnvT);
-        block.SetVector(TdeLightId, new Vector4((float)f.Luminosity, (float)p.StreamGlow, (float)f.ClumpGrowth, (float)p.LineVisibility));
-        Vector3 flash = World(f.FlashPosition);
-        block.SetVector(TdeFlashId, new Vector4(flash.x, flash.y, flash.z, f.FlashVisible ? (float)f.FlashStrength : 0f));
-        block.SetVector(TdeFlashLookId, new Vector4((float)f.FlashRadius, 0f, 0f, 0f));
     }
 
     /// <summary>

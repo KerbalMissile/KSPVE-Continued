@@ -101,7 +101,6 @@ public static class BlackHoleSettings
     public static readonly DoubleSetting BoundRadius = Schema.Add(new DoubleSetting("boundRadius", 0.0, 0.0, 1e12, "Radius (horizon radii) where rays start bending; 0 = automatic."));
     public static readonly BoolSetting Pulsar = Schema.Add(new BoolSetting("pulsar", false, "A pulsar, not a black hole: no shadow, lensing or disk, the body's own star shows; the jets are its beams, swept round the spin axis (the normal)."));
     public static readonly DoubleSetting BeamPeriod = Schema.Add(new DoubleSetting("beamPeriod", 0.0, 0.0, 1e9, "Seconds (real time) for the jets to sweep once round the spin axis, like a pulsar's beams; 0 keeps them along the axis."));
-    public static readonly BoolSetting DiskFromTde = Schema.Add(new BoolSetting("diskFromTde", false, "No disk or jets of its own: a tidal disruption event builds the configured disk from its debris over a couple of months, and the jets launch once it is half built."));
     public static readonly DoubleSetting BeamTilt = Schema.Add(new DoubleSetting("beamTilt", 30.0, 0.0, 180.0, "Angle between the sweeping jets and the spin axis, in degrees."));
 
     // Other kinds of object (SpaceObjects): what the node draws, and the settings only they use. A node for one of them

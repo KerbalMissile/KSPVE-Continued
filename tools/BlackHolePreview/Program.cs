@@ -380,7 +380,7 @@ internal static partial class Program
     static readonly float BaseBound = MathF.Max(Outer * 1.25f + 8f, JetStrength > 0
         ? MathF.Sqrt(Sq(JetLength * KnotLen) + MathF.Pow(3f * JetWidth * KnotWide * MathF.Pow(JetLength * KnotLen + JetBase * JetSpiral, 0.55f), 2f)) + 4f : 0f);
     static float Bound = BaseBound;
-    // The disk and jets as they are now (BlackHoles.StateOf): as configured, or as far as a tidal disruption has built them.
+    // The configured disk and jets.
     static float DiskPresence = 1f, DiskBright = 1f, InnerNow = Inner, OuterNow = Outer, ThickNow = Thickness;
     static float MaskIn, MaskOut, MaskSoft;
     static readonly float Streaks = EnvFloat("BH_STREAK", 0f), Winding = EnvFloat("BH_WIND", 5f);
@@ -412,12 +412,8 @@ internal static partial class Program
         if (args.Length > 0 && args[0] == "starfx") return StarFx.Run(args);
         if (args.Length > 0 && args[0] == "structure") return StructurePreview.Run(args);
         if (args.Length > 0 && args[0] == "procedural") return ProceduralTool.Run(args);
-        if (args.Length > 0 && args[0] == "tde-info") return TdeInfo.Run(args);
         if (args.Length > 0 && args[0] == "eve-info") return EveInfo.Run(args);
         if (args.Length > 0 && args[0] == "browndwarf") return BrownDwarfPreview.Run(args);
-        if (args.Length > 0 && args[0] == "snow") return SnowPreview.Run(args);
-        if (args.Length > 0 && args[0] == "tde") return RenderTde(args);
-        if (args.Length > 0 && args[0] == "tde-svg") return TdeSvg.Run(args);
         if (args.Length > 0 && args[0] == "palette")
         {
             foreach (float k in new[] { 2500f, 3500f, 4500f, 6000f, 7500f, 9000f })
@@ -524,7 +520,6 @@ internal static partial class Program
         float h2 = Vector3.Dot(hv, hv);
         Vector3 color = Vector3.Zero;
         float transmittance = 1f;
-        float envDepth = 0f;   // the outflow's haze passed through so far (capped: TdeRender.EnvelopeMaxDepth)
         bool captured = false;
         float rMin = 1e9f;
         Vector3 hazeColor = Saturate(Blackbody(PeakK * 0.6f));
@@ -550,7 +545,7 @@ internal static partial class Program
             // A disk bigger than DetailRadius: its clumps, and so the steps, grow with the radius out there. Smaller disks
             // keep the fixed steps they were tuned with.
             float grain = OuterNow > DetailRadius ? MathF.Max(1f, r / DetailRadius) : 1f;
-            float dtCap = TdeOn && r > TdeCore ? 0.08f * r : 2f * grain;   // beyond the disk & jets the event may need long strides
+            float dtCap = 2f * grain;
             float dt = Math.Clamp(MathF.Min(0.08f * r, 0.35f * MathF.Max(nearPlane, 0.3f * Thickness * r)), 0.004f, dtCap);
             // Fine steps inside the cloud layer: about three per clump out where the clumps are big.
             if (nearPlane < 5f * ThickNow * r && r < OuterNow * 1.2f) dt = MathF.Min(dt, 0.2f * grain * MathF.Min(grain, 3f));
@@ -559,22 +554,11 @@ internal static partial class Program
                 float jetR = JetWidth * MathF.Pow(nearPlane + JetBase * JetSpiral, 0.55f);
                 if ((x - Vector3.Dot(x, N) * N).Length() < (JetKnots > 0f ? 7f : 3f) * jetR) dt = MathF.Min(dt, (JetKnots > 0f ? 0.12f : 0.35f - 0.15f * JetSpiral - 0.12f * Math.Clamp((JetStrandSharpness - 1f) / 5f, 0f, 1f)) * jetR);   // blobs' thin shells and fine threads need finer steps
             }
-            float tdeK = 0f, envK = 0f; Vector3 tdeEmit = Vector3.Zero, tdeGlow = Vector3.Zero, envEmit = Vector3.Zero;
-            if (TdeOn) dt = MathF.Min(dt, MathF.Max(TdeSample(x, Vector3.Normalize(v), traveled, out tdeK, out tdeEmit, out tdeGlow, out envK, out envEmit), 0.0005f));
             float streamLimit;
             Vector3 streamGlow = StreamSample(x, traveled * PixelAngle, out streamLimit, out float streamK, out Vector3 streamColor);
             dt = MathF.Min(dt, MathF.Max(streamLimit, 0.0005f));
             if (CompanionR > 0f) dt = MathF.Min(dt, starStep);
             if (k == 0) dt *= Jitter;
-            if (envK > 0f)
-            {
-                float ke = MathF.Min(envK, MathF.Max(EnvelopeMaxDepth - envDepth, 0f) / dt);
-                envDepth += ke * dt;
-                tdeK += ke;
-                tdeEmit += envEmit * (ke / envK);
-            }
-            RayLog?.AppendLine($"{k}: r={r:0.0} dt={dt:0.###} tdeK={tdeK:0.###}");
-
             // Glow: hot, thin plasma filling the space around the hole (lensed along with everything else).
             color += transmittance * hazeColor * (Glow * (1f - StreakGlowDim * Streaks * SmoothStep(StreakFrom, StreakFull, FaceOn)) * DiskPresence * (1f + 3f * LaunchFlash) * 0.03f * MathF.Exp(-(r - 1f) / 2.2f)) * dt;
             AccumulateDisk(MainDisk(), x, v, dt, traveled, ref color, ref transmittance);
@@ -586,13 +570,6 @@ internal static partial class Program
                 transmittance *= 1f - sa;
             }
             color += transmittance * CompanionGlare((x - CompanionPos).Length()) * dt;
-            if (tdeK > 0f || tdeGlow != Vector3.Zero)
-            {
-                // Exact for a uniform slab: the event's gas is often far too opaque for emission * dt.
-                float a = 1f - MathF.Exp(-tdeK * dt);
-                color += transmittance * (tdeEmit / MathF.Max(tdeK, 1e-12f) * a + tdeGlow * dt);
-                transmittance *= 1f - a;
-            }
             if (transmittance < 0.01f) { LastExit = "opaque"; break; }
 
             Vector3 a1 = -1.5f * h2 * x / MathF.Pow(r, 5);

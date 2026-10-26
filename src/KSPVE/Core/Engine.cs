@@ -106,7 +106,6 @@ public sealed class Engine : MonoBehaviour
 
         try
         {
-            KSPVE.Space.TidalDisruptions.Update(RenderingAllowed && SpaceRender.BlackHoles);
             KSPVE.Space.BlackHoles.Update(SpaceRender, RenderingAllowed);
             KSPVE.Space.DiskLight.Update(RenderingAllowed && SpaceRender.BlackHoles);
             KSPVE.Space.OrbitPathOverlay.Update(SafeMode == SafeModeReason.None && Settings.Get(CoreSettings.Enabled) && SpaceRender.OrbitPaths);

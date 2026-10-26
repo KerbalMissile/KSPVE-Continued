@@ -5,7 +5,6 @@ using KSPVE.Core;
 using KSPVE.Pure.Config;
 using KSPVE.Pure.Numerics;
 using KSPVE.Pure.Space;
-using KSPVE.Pure.Space.Tde;
 using KSPVE.Space;
 using UnityEngine;
 
@@ -91,7 +90,6 @@ internal sealed class SettingsWindow : MonoBehaviour
             for (int i = 0; i < BlackHoles.Definitions.Count; i++) DrawBlackHole(i);
             DrawAddObject();
             DrawProcedural();
-            DrawTidalDisruption();
         }
         p.OrbitPaths = Toggle("Orbit paths in the map (every body's next lap)", p.OrbitPaths);
 
@@ -271,7 +269,6 @@ internal sealed class SettingsWindow : MonoBehaviour
             h.JetColor = ColorSliders("      Jet colour", h.JetColor);
         }
         h.Pulsar = Toggle("    Pulsar: no shadow, lensing or disk, only the jets as beams", h.Pulsar);
-        h.DiskFromTde = Toggle("    No disk until a tidal disruption builds one", h.DiskFromTde);
         DrawCompanion(h);
         DrawTexture(h);
         h.DiskLight = Slider("    Light on ships", h.DiskLight, 0, 5);
@@ -914,62 +911,6 @@ internal sealed class SettingsWindow : MonoBehaviour
             _openHole = BlackHoles.Definitions.Count - 1;
             _status = $"Added; set it up below its name and Save to keep it";
         }
-    }
-
-    /// <summary>The save's tidal disruption event: where its switch lives, and what it is doing.</summary>
-    private static void DrawTidalDisruption()
-    {
-        GUILayout.Label("  Tidal disruption event");
-        string path = TidalDisruptions.FilePath;
-        if (path == null)
-        {
-            GUILayout.Label("    Load a save: tde = on in its file, GameData/KSPVE/PluginData/Saves/<save>.cfg, starts one.");
-            return;
-        }
-        GUILayout.Label("    Switch: tde = on / off in " + path.Replace(Paths.KspRoot, string.Empty).TrimStart(System.IO.Path.DirectorySeparatorChar, '/'));
-        TdeSaveState state = TidalDisruptions.State;
-        if (state == null || !state.On)
-        {
-            GUILayout.Label("    Off.");
-            if (GUILayout.Button("    Start one now (writes tde = on)")) TidalDisruptions.SetSwitch(true);
-            return;
-        }
-        TidalDisruption model = TidalDisruptions.Model;
-        if (model == null)
-        {
-            GUILayout.Label(TidalDisruptions.Building ? "    Working out the orbits..." : "    No black hole to run it at.");
-        }
-        else
-        {
-            double scale = TidalDisruptions.Parameters.TimeScale;
-            double physical = TidalDisruptions.GameSecondsSinceStart * scale;
-            double toDisruption = (model.ApproachSeconds - physical) / scale;
-            string where = TidalDisruptions.Hole != null ? TidalDisruptions.Hole.BodyName : "the hole";
-            if (toDisruption > 0)
-                GUILayout.Label($"    A star is falling toward {where}: torn apart in {KSPUtil.PrintTime(toDisruption, 3, false)}.");
-            else
-            {
-                TdeFrame f = TidalDisruptions.Current;
-                string phase = f != null ? f.Phase.ToString() : "Over";
-                GUILayout.Label($"    {phase}: {KSPUtil.PrintTime(-toDisruption, 3, false)} since the star was torn apart ({-toDisruption * scale / 86400.0:0.#} days of real time).");
-                double toReturn = (model.FirstReturnSeconds + model.ApproachSeconds - physical) / scale;
-                if (toReturn > 0) GUILayout.Label($"    The first debris returns in {KSPUtil.PrintTime(toReturn, 3, false)}.");
-                if (f != null && f.Luminosity > 0.0)
-                {
-                    GUILayout.Label(string.Format(CultureInfo.InvariantCulture, "    Luminosity {0:0.00} x Eddington; debris falling back at {1:0.0} x Eddington.", f.Luminosity, f.FallbackEddington));
-                    if (f.PhotosphereMeters > 0.0)
-                        GUILayout.Label(string.Format(CultureInfo.InvariantCulture, "    Photosphere {0:0} horizon radii, {1:0} K.", f.PhotosphereMeters / (model.TimeUnit * 299792458.0), f.PhotosphereTemperature));
-                }
-            }
-            TdeFrame now = TidalDisruptions.Current;
-            if (TidalDisruptions.Hole != null && TidalDisruptions.Hole.DiskFromTde && now != null)
-            {
-                string jets = now.JetAge > 0.0 ? "jets launched" : "jets launch when it is half built";
-                GUILayout.Label(string.Format(CultureInfo.InvariantCulture, "    {0}'s disk: {1:0}% built; {2}.", TidalDisruptions.Hole.BodyName, now.DiskFormation * 100.0, jets));
-            }
-            GUILayout.Label(string.Format(CultureInfo.InvariantCulture, "    Plays at {0:0.###}x real time; flare peaks {1:0} real days after disruption.", scale, model.PeakSeconds / 86400.0));
-        }
-        if (GUILayout.Button("    Stop (writes tde = off)")) TidalDisruptions.SetSwitch(false);
     }
 
     private static void Header(string text) => Gui.Header(text);

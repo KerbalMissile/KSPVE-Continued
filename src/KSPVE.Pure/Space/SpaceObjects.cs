@@ -133,13 +133,13 @@ public static class SpaceObjects
     /// The settings that suit each kind, laid under a node's own values: a protoplanetary disk 8 to 215 star radii (the
     /// Sun's: out to 1 AU) with six ring gaps; a debris disk, a narrow ring at 160 to 215; an asteroid belt at 100 to 155;
     /// a neutron star 3 horizon radii across with its disk at 18 to 70; a nebula 1000 body radii across; a comet's coma
-    /// and tails in 10,000 km units. None of them drag or light vessels, or wait for a tidal disruption.
+    /// and tails in 10,000 km units. None of them drag or light vessels.
     /// </summary>
     public static CfgNode KindDefaults(SpaceObjectKind kind)
     {
         var node = new CfgNode(BlackHoleSettings.Schema.NodeName);
         if (kind == SpaceObjectKind.BlackHole) return node;
-        node.Add("diskDrag", "False").Add("diskLight", "0").Add("diskFromTde", "False").Add("jets", "0").Add("pulsar", "False");
+        node.Add("diskDrag", "False").Add("diskLight", "0").Add("jets", "0").Add("pulsar", "False");
         switch (kind)
         {
             case SpaceObjectKind.NeutronStar:

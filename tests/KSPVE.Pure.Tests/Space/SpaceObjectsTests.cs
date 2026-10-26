@@ -32,7 +32,6 @@ public class SpaceObjectsTests
             SettingsValues v = BlackHoleSettings.ResolveWithKind(new CfgNode("KSPVE_BLACKHOLE").Add("body", "Star").Add("kind", kind.ToString()), new List<ConfigIssue>());
             Assert.That(v.Get(BlackHoleSettings.DiskDrag), Is.False, kind.ToString());
             Assert.That(v.Get(BlackHoleSettings.DiskLight), Is.EqualTo(0.0), kind.ToString());
-            Assert.That(v.Get(BlackHoleSettings.DiskFromTde), Is.False, kind.ToString());
             Assert.That(v.Get(BlackHoleSettings.Jets), Is.EqualTo(0.0), kind.ToString());
         }
     }

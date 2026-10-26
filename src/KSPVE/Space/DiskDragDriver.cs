@@ -2,7 +2,6 @@ using KSPVE.Core;
 using KSPVE.Pure.Config;
 using KSPVE.Pure.Numerics;
 using KSPVE.Pure.Space;
-using KSPVE.Pure.Space.Tde;
 using UnityEngine;
 
 namespace KSPVE.Space;
