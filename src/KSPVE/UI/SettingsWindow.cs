@@ -4,7 +4,6 @@ using System.Globalization;
 using KSPVE.Core;
 using KSPVE.Pure.Config;
 using KSPVE.Pure.Numerics;
-using KSPVE.Pure.Post;
 using KSPVE.Pure.Space;
 using KSPVE.Pure.Space.Tde;
 using KSPVE.Space;
@@ -13,7 +12,7 @@ using UnityEngine;
 namespace KSPVE.UI;
 
 /// <summary>
-/// In-game settings window. Ctrl+Alt+V toggles it; Ctrl+Alt+K toggles all post-processing (kill switch).
+/// In-game settings window. Ctrl+Alt+V toggles it.
 /// Changes apply live; Save writes them to GameData/KSPVE/PluginData/user.cfg.
 /// </summary>
 internal sealed class SettingsWindow : MonoBehaviour
@@ -21,9 +20,6 @@ internal sealed class SettingsWindow : MonoBehaviour
     private const string LockId = "KSPVE_SettingsWindow";
     private const int WindowId = 0x4B535056;
 
-    private static readonly string[] TonemapperNames = { "None", "Rolloff", "Neutral", "AgX", "ACES" };
-    private static readonly string[] PresetNames = Enum.GetNames(typeof(LookPreset));
-    private static readonly string[] DebugNames = Enum.GetNames(typeof(DebugView));
 
     private bool _visible;
     private bool _hiddenForScreenshot;
@@ -52,12 +48,6 @@ internal sealed class SettingsWindow : MonoBehaviour
             _visible = !_visible;
             if (!_visible) ReleaseLock();
         }
-        if (Input.GetKeyDown(KeyCode.K) && Engine.Instance != null)
-        {
-            PostProfile p = Engine.Instance.Post;
-            p.Enabled = !p.Enabled;
-            ScreenMessages.PostScreenMessage("KSPVE post-processing " + (p.Enabled ? "ON" : "OFF"), 2f, ScreenMessageStyle.UPPER_CENTER);
-        }
     }
 
     private void OnGUI()
@@ -82,7 +72,7 @@ internal sealed class SettingsWindow : MonoBehaviour
     private void Draw(int id)
     {
         Engine engine = Engine.Instance;
-        PostProfile p = engine.Post;
+        SpaceRenderSettings p = engine.SpaceRender;
 
         // Everything inside stays as wide as the window (long lines wrap, grids share the width out) and scrolls only
         // up and down, so nothing is ever cut off at the right edge.
@@ -90,81 +80,6 @@ internal sealed class SettingsWindow : MonoBehaviour
         GUI.skin.label.wordWrap = true;
         _scroll = GUILayout.BeginScrollView(_scroll, false, true, GUIStyle.none, GUI.skin.verticalScrollbar, GUILayout.Height(_rect.height - 110));
         GUILayout.BeginVertical(GUILayout.Width(_rect.width - 44));
-
-        Header("General");
-        p.Enabled = Toggle("Post-processing   (kill switch: Ctrl+Alt+K)", p.Enabled);
-        bool hdr = Toggle("HDR scene cameras", engine.Hdr.Enabled);
-        if (hdr != engine.Hdr.Enabled) engine.Hdr.Enabled = hdr;
-        p.CompareSplit = Toggle("Split-screen compare (left half = stock KSP)", p.CompareSplit);
-        GUILayout.Label("Look presets:");
-        int preset = GUILayout.SelectionGrid(-1, PresetNames, 3);
-        if (preset >= 0)
-        {
-            p.ApplyPreset((LookPreset)preset);
-            _status = "Applied preset " + PresetNames[preset];
-        }
-
-        Header("Exposure & tone");
-        GUILayout.Label("Tonemapper:");
-        p.Tonemapper = (TonemapperMode)GUILayout.SelectionGrid((int)p.Tonemapper, TonemapperNames, 5);
-        p.Exposure = Slider("Exposure (EV)", p.Exposure, -4, 4);
-        p.AutoExposure = Toggle("Auto exposure / eye adaptation (experimental)", p.AutoExposure);
-        if (p.AutoExposure)
-        {
-            p.AutoExposureKey = Slider("  Target brightness", p.AutoExposureKey, 0.05, 0.5);
-            p.AutoExposureMinEv = Slider("  Min exposure (EV)", p.AutoExposureMinEv, -6, 0);
-            p.AutoExposureMaxEv = Slider("  Max exposure (EV)", p.AutoExposureMaxEv, 0, 6);
-            p.AutoExposureDarkSpeed = Slider("  Adapt to dark speed", p.AutoExposureDarkSpeed, 0.1, 10);
-            p.AutoExposureBrightSpeed = Slider("  Adapt to bright speed", p.AutoExposureBrightSpeed, 0.1, 10);
-        }
-
-        Header("Bloom & lens");
-        p.Bloom = Toggle("Bloom", p.Bloom);
-        if (p.Bloom)
-        {
-            p.BloomIntensity = Slider("  Intensity", p.BloomIntensity, 0, 2);
-            p.BloomThreshold = Slider("  Threshold", p.BloomThreshold, 0, 4);
-            p.BloomKnee = Slider("  Softness", p.BloomKnee, 0, 1);
-            p.BloomScatter = Slider("  Spread", p.BloomScatter, 0, 1);
-            p.LensDirt = Slider("  Lens dirt", p.LensDirt, 0, 2);
-            p.Spikes = Slider("  Diffraction spikes", p.Spikes, 0, 2);
-            p.SensorSmear = Slider("  Sensor smear", p.SensorSmear, 0, 1);
-        }
-        p.ChromaticAberration = Slider("Chromatic aberration", p.ChromaticAberration, 0, 1);
-        p.Vignette = Slider("Vignette", p.Vignette, 0, 1);
-
-        Header("Colour");
-        p.Temperature = Slider("Temperature (cool / warm)", p.Temperature, -1, 1);
-        p.Tint = Slider("Tint (green / magenta)", p.Tint, -1, 1);
-        p.Contrast = Slider("Contrast", p.Contrast, 0.5, 1.5);
-        p.Saturation = Slider("Saturation", p.Saturation, 0, 2);
-        p.Vibrance = Slider("Vibrance", p.Vibrance, -1, 1);
-        p.NightVision = Slider("Night vision (Purkinje)", p.NightVision, 0, 1);
-
-        Header("Film & display");
-        p.Grain = Slider("Film grain", p.Grain, 0, 1);
-        p.Sharpen = Slider("Sharpen (CAS)", p.Sharpen, 0, 1);
-        p.Broadcast = Slider("Broadcast TV look", p.Broadcast, 0, 1);
-
-        Header("Lighting (experimental)");
-        p.AmbientOcclusion = Toggle("Ambient occlusion", p.AmbientOcclusion);
-        if (p.AmbientOcclusion)
-        {
-            p.AoIntensity = Slider("  Intensity", p.AoIntensity, 0, 1);
-            p.AoRadius = Slider("  Radius (m)", p.AoRadius, 0.1, 10);
-        }
-        p.ContactShadows = Toggle("Contact shadows", p.ContactShadows);
-        if (p.ContactShadows) p.ContactShadowLength = Slider("  Ray length (m)", p.ContactShadowLength, 0.1, 5);
-
-        Header("Camera (experimental)");
-        p.MotionBlur = Toggle("Motion blur", p.MotionBlur);
-        if (p.MotionBlur) p.MotionBlurStrength = Slider("  Shutter", p.MotionBlurStrength, 0, 1);
-        p.DepthOfField = Toggle("Depth of field", p.DepthOfField);
-        if (p.DepthOfField)
-        {
-            p.DofFocusDistance = Slider("  Focus distance (m, 0 = auto)", p.DofFocusDistance, 0, 500);
-            p.DofStrength = Slider("  Strength", p.DofStrength, 0, 1);
-        }
 
         Header("Space");
         p.BlackHoles = Toggle($"Black holes, neutron stars, disks, belts, nebulae & comets ({KSPVE.Space.BlackHoles.Definitions.Count} configured)", p.BlackHoles);
@@ -187,9 +102,6 @@ internal sealed class SettingsWindow : MonoBehaviour
             Features.Guard(f, "DrawSettings", f.DrawSettings);
         }
 
-        Header("Debug");
-        p.DebugView = (DebugView)GUILayout.SelectionGrid((int)p.DebugView, DebugNames, 4);
-
         GUILayout.EndVertical();
         GUILayout.EndScrollView();
         GUI.skin.label.wordWrap = wrap;
@@ -201,7 +113,7 @@ internal sealed class SettingsWindow : MonoBehaviour
         }
         if (GUILayout.Button("Defaults"))
         {
-            engine.ResetPost();
+            engine.SpaceRender.Apply(SpaceRenderSettings.Schema.Resolve(null, new List<ConfigIssue>()));
             Features.ResetToDefaults();
             _status = "Defaults restored (not saved yet)";
         }

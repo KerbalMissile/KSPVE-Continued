@@ -4,7 +4,6 @@ using System.Globalization;
 using KSPVE.Core;
 using KSPVE.Pure.Config;
 using KSPVE.Pure.Numerics;
-using KSPVE.Pure.Post;
 using KSPVE.Pure.Space;
 using KSPVE.Pure.Space.Tde;
 using KSP.Localization;
@@ -965,7 +964,7 @@ internal static class BlackHoles
         ? DiskState.Forming(TidalDisruptions.FrameFor(hole), hole.DiskInner, hole.DiskOuter, hole.DiskThickness, hole.Jets, hole.JetLength)
         : DiskState.Configured(hole.DiskInner, hole.DiskOuter, hole.DiskThickness, hole.Jets, hole.JetLength);
 
-    public static void Update(PostProfile profile, bool allowed)
+    public static void Update(SpaceRenderSettings profile, bool allowed)
     {
         // Procedural objects are planned once the game's bodies exist.
         if (!_proceduralPlanned && Time.realtimeSinceStartup > _proceduralChanged + 0.3f

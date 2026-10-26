@@ -6,7 +6,7 @@ using KSPVE.Pure.Config;
 namespace KSPVE.Core;
 
 /// <summary>
-/// One self-contained part of KSPVE (clouds, aurorae, star effects, ...). Every non-abstract subclass with a public
+/// One self-contained part of KSPVE (clouds, star effects, ...). Every non-abstract subclass with a public
 /// parameterless constructor is found and created by the engine at startup, so adding a feature needs no edits elsewhere:
 /// it loads its configs, updates each frame, draws its own section of the settings window and saves its own user node.
 /// Each call is guarded: a feature that throws is logged (once per kind of call) and the rest carry on.

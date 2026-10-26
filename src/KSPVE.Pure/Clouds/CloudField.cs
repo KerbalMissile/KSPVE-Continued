@@ -6,7 +6,7 @@ namespace KSPVE.Pure.Clouds;
 /// <summary>How a layer follows the dynamic weather.</summary>
 public enum WeatherRole
 {
-    /// <summary>Unaffected (aurorae, haze, effects-only layers, layers without a coverage map).</summary>
+    /// <summary>Unaffected (haze, effects-only layers, layers without a coverage map).</summary>
     None,
     /// <summary>Ordinary clouds: thicker where the air is moist, thinner where it is dry.</summary>
     Base,
@@ -51,7 +51,7 @@ public sealed class LayerModel
     /// pyrocumulus) are convective, only where there are storms; a layer drawn only for its effects (rain, snow,
     /// lightning, droplets, wet ground) follows where precipitation falls; any other layer with a coverage map is ordinary
     /// cloud, thicker where the air is moist (that it can also rain, as most of the packs' layers can, does not confine it
-    /// to where it rains); anything else (aurorae, haze, layers without a map) none.
+    /// to where it rains); anything else (haze, layers without a map) none.
     /// </summary>
     public static WeatherRole RoleOf(CloudLayer layer)
     {
@@ -60,7 +60,7 @@ public sealed class LayerModel
         bool effects = v.HasParticleField || v.HasLightning || v.HasDroplets || v.HasWetSurfaces;
         if (v.Raymarching.FxOnlyLayer) return effects ? WeatherRole.Precipitation : WeatherRole.None;
         if (!v.CoverageMap.IsSet) return WeatherRole.None;
-        if (v.ScaledFadeStartAltitude < 0.0) return WeatherRole.None;   // a stub drawn flat from everywhere (aurorae)
+        if (v.ScaledFadeStartAltitude < 0.0) return WeatherRole.None;   // a stub drawn flat from everywhere
         string name = layer.Name.ToLowerInvariant();
         if (IsStormy(name)) return WeatherRole.Convective;
         foreach (CloudType t in v.CloudTypes)

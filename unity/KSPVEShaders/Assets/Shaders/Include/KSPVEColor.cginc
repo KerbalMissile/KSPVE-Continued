@@ -1,14 +1,14 @@
 #ifndef KSPVE_COLOR_INCLUDED
 #define KSPVE_COLOR_INCLUDED
 
-// Colour maths shared by KSPVE post-processing. Every constant mirrors the verified C# reference in
+// Colour maths shared by KSPVE shaders. Every constant mirrors the verified C# reference in
 // src/KSPVE.Pure/ColorScience (Tonemappers.cs, Transfer.cs), which unit tests check against sources.
 
 static const float3 KSPVE_LUMA = float3(0.2126, 0.7152, 0.0722);
 
 float KSPVELuminance(float3 c) { return dot(c, KSPVE_LUMA); }
 
-// KSP renders in Gamma colour space, so scene buffers hold sRGB-encoded values (HDR cameras may exceed 1).
+// KSP renders in Gamma colour space, so scene buffers hold sRGB-encoded values.
 // Exact IEC 61966-2-1 transfer, extended to values above 1 with the same power segment.
 float3 KSPVESrgbToLinear(float3 c)
 {

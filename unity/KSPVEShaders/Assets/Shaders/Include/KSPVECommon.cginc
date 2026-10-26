@@ -9,7 +9,7 @@ struct KSPVEFullscreenV2F
 };
 
 // Fullscreen triangle from SV_VertexID (CommandBuffer.DrawProcedural, MeshTopology.Triangles, 3 vertices).
-// Matches Unity's Post Processing v2 VertDefault: only the UV is flipped where UVs start at the top
+// Matches Unity's built-in fullscreen blit: only the UV is flipped where UVs start at the top
 // (D3D). Flipping the position as well would cancel the flip and mirror the image vertically.
 KSPVEFullscreenV2F KSPVEVertFullscreen(uint id : SV_VertexID)
 {

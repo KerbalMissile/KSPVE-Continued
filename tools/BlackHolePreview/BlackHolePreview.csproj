@@ -29,7 +29,6 @@
     <Compile Include="..\..\src\KSPVE.Pure\Clouds\*.cs" LinkBase="Pure\Clouds" />
     <Compile Include="..\..\src\KSPVE.Pure\Textures\*.cs" LinkBase="Pure\Textures" />
     <Compile Include="..\..\src\KSPVE.Pure\Climate\*.cs" LinkBase="Pure\Climate" />
-    <Compile Include="..\..\src\KSPVE.Pure\Water\**\*.cs" LinkBase="Pure\Water" />
     <!-- Structures made of particles on real orbits (evaporating planets, impact debris, synestias ...). -->
     <Compile Include="..\..\src\KSPVE.Pure\Space\Particles\*.cs" LinkBase="Pure\Particles" />
     <!-- The fluid-dynamics atmospheres of brown dwarfs (the browndwarf command). -->
@@ -40,8 +39,6 @@
     <Compile Include="..\..\src\KSPVE.Pure\SpaceWeather\SolarWind.cs" Link="Pure\SolarWind.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Atmospherics\Eclipse.cs" Link="Pure\Eclipse.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Atmospherics\AirmassExtinction.cs" Link="Pure\AirmassExtinction.cs" />
-    <!-- Aurorae and airglow (the preview runs the shader's reference tracer). -->
-    <Compile Include="..\..\src\KSPVE.Pure\Aurora\*.cs" LinkBase="Pure\Aurora" />
     <Compile Include="..\..\src\KSPVE.Pure\Lighting\Photometry.cs" Link="Pure\Photometry.cs" />
   </ItemGroup>
 </Project>

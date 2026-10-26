@@ -18,7 +18,7 @@
   <!-- KSPVE_STABLE=true builds only what has been tried in game (the features still being brought up left out), for a
        safe deploy to a player's install while the rest is finished. -->
   <ItemGroup Condition="'$(KSPVE_STABLE)' == 'true'">
-    <Compile Remove="Clouds\**;CloudFx\**;EveModules\**;Climate\**;Skies\**;Water\**;Stars\**;Aurora\**;Fluids\**;RayTracing\**;Space\Structure*.cs" />
+    <Compile Remove="Clouds\**;CloudFx\**;EveModules\**;Climate\**;Skies\**;Water\**;Stars\**;Aurora\**;Fluids\**;Post\**;Space\Structure*.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="$(KSPManaged)\Assembly-CSharp.dll" Private="false" />

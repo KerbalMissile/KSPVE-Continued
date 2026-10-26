@@ -39,8 +39,6 @@ internal static class ClimateConfig
     /// <summary>Display settings: snow's albedo (fresh snow is 0.8 to 0.9 in visible light), sparkle (0 off), keep craft clear of snow.</summary>
     public static double SnowAlbedo = 0.86, SnowSparkle = 0.0;
     public static bool KeepVehiclesClear = true;
-    /// <summary>Wind pushes craft (through Ferram Aerospace Research's wind hook; gameplay, off by default).</summary>
-    public static bool WindPush = false;
     /// <summary>The weather is looked at this many days (of the body) back for recent snowfall; 0 turns it off.</summary>
     public static double RecentWindowDays = 8.0;
 
@@ -91,7 +89,6 @@ internal static class ClimateConfig
         SnowAlbedo = 0.86;
         SnowSparkle = 0.0;
         KeepVehiclesClear = true;
-        WindPush = false;
         Bodies.Clear();
         foreach (KeyValuePair<string, BodyClimateOverride> pair in Defaults) Bodies[pair.Key] = pair.Value.Clone();
         Revision++;
@@ -102,7 +99,6 @@ internal static class ClimateConfig
         ReadBool(node, "scaledSnow", ref ScaledSnow);
         ReadBool(node, "localSnow", ref LocalSnow);
         ReadBool(node, "keepVehiclesClear", ref KeepVehiclesClear);
-        ReadBool(node, "windPush", ref WindPush);
         ReadDouble(node, "snowAlbedo", ref SnowAlbedo);
         ReadDouble(node, "snowSparkle", ref SnowSparkle);
         ReadDouble(node, "recentWindowDays", ref RecentWindowDays);
@@ -132,7 +128,6 @@ internal static class ClimateConfig
             .Add("scaledSnow", ScaledSnow ? "true" : "false")
             .Add("localSnow", LocalSnow ? "true" : "false")
             .Add("keepVehiclesClear", KeepVehiclesClear ? "true" : "false")
-            .Add("windPush", WindPush ? "true" : "false")
             .Add("snowAlbedo", SnowAlbedo.ToString("R", CultureInfo.InvariantCulture))
             .Add("snowSparkle", SnowSparkle.ToString("R", CultureInfo.InvariantCulture))
             .Add("scaledResolution", ScaledResolution.ToString(CultureInfo.InvariantCulture))

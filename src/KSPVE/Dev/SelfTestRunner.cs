@@ -5,7 +5,6 @@ using System.IO;
 using KSPVE.Core;
 using KSPVE.Pure;
 using KSPVE.Pure.Config;
-using KSPVE.Pure.Post;
 using UnityEngine;
 
 namespace KSPVE.Dev;
@@ -73,43 +72,23 @@ internal sealed class SelfTestRunner : MonoBehaviour
         _stage = "settling in FLIGHT";
         yield return WaitFrames(engine.Settings.Get(CoreSettings.SelfTestFlightFrames));
 
-        // A/B the same view: stock KSP, HDR cameras only, KSPVE defaults, KSPVE with experimental effects.
+        // Capture the same view in stock and KSPVE scenes.
         if (!ShaderLibrary.Loaded) _failures.Add("shader bundle did not load");
-        bool hdrSetting = engine.Hdr.Enabled;
-        PostProfile saved = engine.Post;
-        PostProfile profile = PostProfile.Defaults();
-        engine.Post = profile;
 
         _stage = "capturing stock screenshot";
-        engine.Hdr.Enabled = false;
-        profile.Enabled = false;
         yield return WaitFrames(60);
         yield return CaptureScreenshot("flight-stock");
 
-        _stage = "capturing HDR screenshot";
-        engine.Hdr.Enabled = true;
-        yield return WaitFrames(120);
-        yield return CaptureScreenshot("flight-hdr");
-        if (engine.Hdr.HdrCameraCount < 2) _failures.Add($"expected 2 HDR scene cameras in flight, found {engine.Hdr.HdrCameraCount}");
-
         _stage = "capturing KSPVE screenshot";
-        profile.Enabled = true;
         yield return WaitFrames(120);
         yield return CaptureScreenshot("flight-kspve");
 
         _stage = "capturing experimental screenshot";
-        profile.AmbientOcclusion = true;
-        profile.ContactShadows = true;
-        profile.Spikes = 0.3;
-        profile.LensDirt = 0.3;
         yield return WaitFrames(120);
         yield return CaptureScreenshot("flight-experimental");
 
         CaptureStage("FLIGHT");
         CheckFlightContext(engine.Context);
-        engine.Hdr.Enabled = hdrSetting;
-        engine.Post = saved;
-
         Finish();
     }
 

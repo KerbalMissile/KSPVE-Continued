@@ -217,7 +217,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
             double time = Time.unscaledTime;
             double inverseScale = ScaledSpace.InverseScaleFactor;
 
-            float scale = Mathf.Clamp((float)engine.Post.BlackHoleResolution, 0.05f, 4f);
+            float scale = Mathf.Clamp((float)engine.SpaceRender.BlackHoleResolution, 0.05f, 4f);
             bool reduced = Mathf.Abs(scale - 1f) > 0.01f;   // drawn into a buffer at this scale (down, or supersampled)
             int width = reduced ? Mathf.Max(1, (int)(_camera.pixelWidth * scale)) : _camera.pixelWidth;
             int height = reduced ? Mathf.Max(1, (int)(_camera.pixelHeight * scale)) : _camera.pixelHeight;
@@ -301,7 +301,7 @@ internal sealed class BlackHoleRenderer : MonoBehaviour
                 double elevation = Math.Asin(Math.Min(1.0, Math.Abs(Vector3.Dot(-center.normalized, normal)))) * 180.0 / Math.PI;
                 block.SetVector(StreakId, new Vector4((float)BlackHoleSettings.StreakView(hole.DiskStreaks, elevation, hole.StreaksFrom, hole.StreaksFull), (float)hole.OuterGlow, (float)hole.DiskEdge, (float)hole.DiskEvenness));
                 block.SetVector(FormId, new Vector4((float)disk.Presence, (float)disk.Brightness, (float)disk.Spiral, (float)disk.JetHeads));
-                block.SetVector(LookId, new Vector4((float)hole.PeakTemperature, (float)(hole.Brightness * engine.Post.BlackHoleBrightness), rotation, (float)(time % 10000.0)));
+                block.SetVector(LookId, new Vector4((float)hole.PeakTemperature, (float)(hole.Brightness * engine.SpaceRender.BlackHoleBrightness), rotation, (float)(time % 10000.0)));
                 // The swirl keeps the configured pitch and flow as a young jet grows out to its full length.
                 block.SetVector(JetId, new Vector4((float)disk.Jets, (float)disk.JetLength, (float)hole.JetWidth, (float)hole.JetSpeed));
                 block.SetVector(Jet3Id, new Vector4((float)hole.JetStrands, (float)hole.JetStrandSharpness, 0f, 0f));

@@ -11,10 +11,10 @@ using UnityEngine;
 namespace KSPVE.Seasonal;
 
 /// <summary>
-/// Seasons, climate, snow and wind. Each body's real axial tilt and orbit give the sun's latitude through the year (the
+/// Seasons, climate and snow. Each body's real axial tilt and orbit give the sun's latitude through the year (the
 /// clouds' weather follows it); a one dimensional energy balance model gives temperatures by latitude and season; snow
 /// and ice follow from the temperatures and the weather's precipitation, and are shown on the scaled planets and on the
-/// local terrain; the weather's wind can push craft (through Ferram Aerospace Research).
+/// local terrain.
 /// </summary>
 internal sealed class ClimateFeature : Feature
 {
@@ -25,7 +25,7 @@ internal sealed class ClimateFeature : Feature
 
     public override string Name => "Climate";
     public override int Order => -50;   // after the clouds (which own the weather), before the effects that draw it
-    public override string SettingsTitle => "Seasons, snow & wind";
+    public override string SettingsTitle => "Seasons & snow";
 
     public override void Load(List<ConfigIssue> issues)
     {
@@ -38,7 +38,6 @@ internal sealed class ClimateFeature : Feature
         if (Planetarium.fetch != null && FlightGlobals.Bodies != null) SnowCover.Tick();
         ScaledSnow.Update(allowed);
         LocalSnow.Update(allowed);
-        WindForces.Update();
     }
 
     public override CfgNode UserNode() => ClimateConfig.ToUserNode();
@@ -48,7 +47,6 @@ internal sealed class ClimateFeature : Feature
     public override void Shutdown()
     {
         ScaledSnow.RestoreAll();
-        WindForces.Shutdown();
         SnowCover.Forget();
         BodySeasons.Uninstall();
     }
@@ -72,9 +70,6 @@ internal sealed class ClimateFeature : Feature
         ClimateConfig.ScaledBodies = Gui.IntSlider("  Planets with snow textures at once (nearest first)", ClimateConfig.ScaledBodies, 1, 8);
         ClimateConfig.RecentWindowDays = Gui.Slider("Recent snowfall looked back over (days of the planet)", ClimateConfig.RecentWindowDays, 0.0, 30.0, "0.0");
 
-        Gui.Header("Wind");
-        ClimateConfig.WindPush = Gui.Toggle("Wind pushes craft (gameplay; needs Ferram Aerospace Research)", ClimateConfig.WindPush);
-        Gui.Note("Wind: " + WindForces.Status + ".");
     }
 
     private void DrawBody()

@@ -13,7 +13,7 @@ namespace KSPVE.Stars;
 
 /// <summary>
 /// Star activity: sunspots, faculae, prominences and coronal loops, the corona and CMEs on every star, a solar wind with
-/// real CMEs in it for the aurora feature (it sets <see cref="SpaceWeather.Source"/>), and the settings for both. The
+/// real CMEs in it for the solar wind model (it sets <see cref="SpaceWeather.Source"/>), and the settings for both. The
 /// activity itself is <see cref="StarActivity"/>: stateless, from the game time and a seed.
 /// </summary>
 internal sealed class StarsFeature : Feature
@@ -189,7 +189,7 @@ internal sealed class StarsFeature : Feature
     /// <summary>
     /// A test CME launched now straight at a body: 1500 km/s, 70 degrees wide (a fast halo-ish event), with a southward
     /// leaning flux rope so that it drives a storm. It is added to the star's activity model like any other, so the
-    /// wind, the aurora feature and the star's picture all see it.
+    /// wind and the star's picture both see it.
     /// </summary>
     private static void LaunchTest(StarEntry entry, CelestialBody body, CelestialBody star)
     {

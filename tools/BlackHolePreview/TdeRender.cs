@@ -322,7 +322,7 @@ internal static partial class Program
     }
 
     /// <summary>
-    /// The game's Cinematic look, roughly (KSPVE_POST preset: bloom 0.35, vignette 0.35, grain 0.08, lens streaks),
+    /// The game's cinematic look, with bloom, vignette, grain and lens streaks,
     /// on the finished image: bloom at two widths plus a horizontal anamorphic streak from the brightest highlights,
     /// a gentle teal/orange split-tone, vignette and film grain.
     /// </summary>
@@ -386,7 +386,7 @@ internal static partial class Program
     }
 
     /// <summary>
-    /// The game's bloom, roughly (KSPVE_POST defaults: threshold 0.8, intensity 0.25, wide scatter), on the finished
+    /// The game's bloom, with a soft threshold and wide scatter, on the finished
     /// image: brightness over the threshold, blurred at two widths, added back.
     /// </summary>
     static void Bloom(float[] img, int w, int h)

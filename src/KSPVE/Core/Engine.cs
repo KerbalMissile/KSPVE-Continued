@@ -2,10 +2,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using KSPVE.Post;
 using KSPVE.Pure;
 using KSPVE.Pure.Config;
-using KSPVE.Pure.Post;
+using KSPVE.Pure.Space;
 using KSPVE.UI;
 using UnityEngine;
 
@@ -18,8 +17,6 @@ public sealed class Engine : MonoBehaviour
     private SessionMarker _marker;
     private long _frameIndex;
     private bool _contextErrorLogged;
-    private bool _hdrErrorLogged;
-    private bool _postErrorLogged;
     private SettingsWindow _window;
 
     public static Engine Instance { get; private set; }
@@ -31,10 +28,8 @@ public sealed class Engine : MonoBehaviour
     public SafeModeReason SafeMode { get; private set; }
     public FrameOfReference Frame { get; private set; }
     public SceneContext Context { get; } = new SceneContext();
-    internal HdrCameras Hdr { get; } = new HdrCameras();
 
-    /// <summary>Live post-processing parameters, edited by the settings window.</summary>
-    public PostProfile Post { get; internal set; } = PostProfile.Defaults();
+    public SpaceRenderSettings SpaceRender { get; } = new SpaceRenderSettings();
 
     /// <summary>True when KSPVE may render at all (not in safe mode, master switch on, shaders loaded).</summary>
     public bool RenderingAllowed => SafeMode == SafeModeReason.None && Settings.Get(CoreSettings.Enabled) && ShaderLibrary.Loaded;
@@ -59,10 +54,6 @@ public sealed class Engine : MonoBehaviour
         Log.ErrorLogged += _marker.RecordError;
 
         Frame = new FrameOfReference();
-        Hdr.Enabled = SafeMode == SafeModeReason.None
-            && Settings.Get(CoreSettings.Enabled)
-            && Settings.Get(CoreSettings.HdrCameras);
-
         try
         {
             ShaderLibrary.Load();
@@ -115,45 +106,24 @@ public sealed class Engine : MonoBehaviour
 
         try
         {
-            Hdr.Apply();
+            KSPVE.Space.TidalDisruptions.Update(RenderingAllowed && SpaceRender.BlackHoles);
+            KSPVE.Space.BlackHoles.Update(SpaceRender, RenderingAllowed);
+            KSPVE.Space.DiskLight.Update(RenderingAllowed && SpaceRender.BlackHoles);
+            KSPVE.Space.OrbitPathOverlay.Update(SafeMode == SafeModeReason.None && Settings.Get(CoreSettings.Enabled) && SpaceRender.OrbitPaths);
         }
         catch (Exception ex)
         {
-            if (!_hdrErrorLogged)
-            {
-                _hdrErrorLogged = true;
-                Log.Exception("Applying HDR to scene cameras failed (logged once)", ex);
-            }
-        }
-
-        try
-        {
-            PostAttacher.Update(Post, RenderingAllowed);
-            KSPVE.Space.TidalDisruptions.Update(RenderingAllowed && Post.BlackHoles);
-            KSPVE.Space.BlackHoles.Update(Post, RenderingAllowed);
-            KSPVE.Space.DiskLight.Update(RenderingAllowed && Post.BlackHoles);
-            KSPVE.Space.OrbitPathOverlay.Update(SafeMode == SafeModeReason.None && Settings.Get(CoreSettings.Enabled) && Post.OrbitPaths);
-        }
-        catch (Exception ex)
-        {
-            if (!_postErrorLogged)
-            {
-                _postErrorLogged = true;
-                Log.Exception("Attaching post-processing failed (logged once)", ex);
-            }
+            Log.Exception("Updating space rendering failed", ex);
         }
         Features.Update(RenderingAllowed);
     }
 
-    /// <summary>Writes KSPVE_POST, the HDR switch and the black hole tweaks to PluginData/user.cfg, keeping any other user nodes.</summary>
+    /// <summary>Writes render settings to PluginData/user.cfg, keeping any other user nodes.</summary>
     internal bool SaveUserSettings()
     {
         try
         {
-            CfgNode core = KspConfig.LoadUserNodes().Find(n => n.Name == CoreSettings.Schema.NodeName)
-                           ?? new CfgNode(CoreSettings.Schema.NodeName);
-            core.SetValue(CoreSettings.HdrCameras.Key, Hdr.Enabled ? "True" : "False");
-            var nodes = new List<CfgNode> { Post.ToCfg(), core, KSPVE.Space.BlackHoles.UserNode() };
+            var nodes = new List<CfgNode> { SpaceRender.ToCfg(), KSPVE.Space.BlackHoles.UserNode() };
             nodes.AddRange(Features.UserNodes());
             KspConfig.SaveUserNodes(nodes);
             Log.Info("Saved settings to " + Paths.UserConfigPath);
@@ -164,11 +134,6 @@ public sealed class Engine : MonoBehaviour
             Log.Exception("Saving settings failed", ex);
             return false;
         }
-    }
-
-    internal void ResetPost()
-    {
-        Post = PostProfile.Defaults();
     }
 
     /// <summary>Supersampled screenshot to the KSP Screenshots folder, with the KSPVE window hidden.</summary>
@@ -194,18 +159,18 @@ public sealed class Engine : MonoBehaviour
     private void LoadSettings()
     {
         _configIssues.Clear();
-        CfgNode core = null, post = null;
+        CfgNode core = null, spaceRender = null;
         try
         {
             core = KspConfig.LoadMerged(CoreSettings.Schema.NodeName);
-            post = KspConfig.LoadMerged(PostSettings.Schema.NodeName);
+            spaceRender = KspConfig.LoadMerged(SpaceRenderSettings.Schema.NodeName);
         }
         catch (Exception ex)
         {
             Log.Exception("Reading KSPVE config failed; using defaults", ex);
         }
         Settings = CoreSettings.Schema.Resolve(core, _configIssues);
-        Post = PostProfile.From(PostSettings.Schema.Resolve(post, _configIssues));
+        SpaceRender.Apply(SpaceRenderSettings.Schema.Resolve(spaceRender, _configIssues));
         Log.MinLevel = Settings.Get(CoreSettings.MinLogLevel);
         foreach (ConfigIssue issue in _configIssues) Log.Warning("Config " + issue);
     }

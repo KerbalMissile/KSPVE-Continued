@@ -123,7 +123,6 @@ public class SettingsSchemaTests
         Assert.That(v.Get(CoreSettings.Enabled), Is.True);
         Assert.That(v.Get(CoreSettings.MinLogLevel), Is.EqualTo(LogLevel.Info));
         Assert.That(v.Get(CoreSettings.SelfTestFlightFrames), Is.EqualTo(600));
-        Assert.That(v.Get(CoreSettings.HdrCameras), Is.True);
         Assert.That(issues, Is.Empty);
     }
 }

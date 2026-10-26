@@ -415,9 +415,7 @@ internal static partial class Program
         if (args.Length > 0 && args[0] == "tde-info") return TdeInfo.Run(args);
         if (args.Length > 0 && args[0] == "eve-info") return EveInfo.Run(args);
         if (args.Length > 0 && args[0] == "browndwarf") return BrownDwarfPreview.Run(args);
-        if (args.Length > 0 && args[0] == "aurora") return AuroraPreview.Run(args);
         if (args.Length > 0 && args[0] == "snow") return SnowPreview.Run(args);
-        if (args.Length > 0 && (args[0] == "water-ocean" || args[0] == "water-rivers")) return WaterPreview.Run(args);
         if (args.Length > 0 && args[0] == "tde") return RenderTde(args);
         if (args.Length > 0 && args[0] == "tde-svg") return TdeSvg.Run(args);
         if (args.Length > 0 && args[0] == "palette")

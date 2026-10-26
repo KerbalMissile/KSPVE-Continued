@@ -46,7 +46,7 @@ Brainstorming artifact, 2026-09-29. Input to the architecture spec; not yet appr
 | 3 | Floating-origin & precision | KSP rebases the world origin and switches to a Krakensbane velocity frame at speed. History buffers, probes and shadow maps are rebased on those shifts; planet-scale math stays double-precision on the CPU and camera-relative float on the GPU. | 2 | Free | M | P0 | 1,200 |
 | 4 | Shader pipeline + hot reload | Unity 2019.4.18f1 project that builds the shader asset bundle, strips unused keyword variants to keep it small, and in dev builds reloads the bundle in-game without restarting KSP. | — | — | L | P0 | 2,300 |
 | 5 | Compatibility adapters | One adapter per mod (EVE, Scatterer, Parallax, Firefly, Deferred, Waterfall, SpaceDust, Kopernicus, Singularity, TUFX, Shabby, CryoTanks), found by assembly name, accessed via version-guarded reflection. Each exposes only what KSPVE needs and degrades cleanly to "absent". | — | Free | H | P0+ | 2,500 |
-| 6 | Config system | ModuleManager-patchable `KSPVE` nodes: global, per body (exposure, grade, planetshine albedo, rings, aurora), per part (material overrides). Schema validation with readable errors in log and UI. | — | — | L | P0 | 2,000 |
+| 6 | Config system | ModuleManager-patchable `KSPVE` nodes: global, per body (exposure, grade, planetshine albedo, rings), per part (material overrides). Schema validation with readable errors in log and UI. | — | — | L | P0 | 2,000 |
 | 7 | Quality presets & scalability | Each effect declares quality levels (resolution scale, sample counts, update rate). Presets Low → Cinematic map onto them; the governor moves along them. | 6 | — | L | P0 | 1,000 |
 | 8 | Settings UI + A/B compare | In-game window: presets, per-effect toggles and sliders, live split-screen before/after, save to config. | 6, 7 | Low | L | P0 | 2,500 |
 | 9 | GPU profiler & VRAM overlay | D3D11 timestamp queries around each KSPVE pass via a small native plugin (shared with 19), frame-time graph, VRAM held by KSPVE render targets. | 1 | Low | M | P0 | 1,500 |
@@ -178,7 +178,7 @@ Brainstorming artifact, 2026-09-29. Input to the architecture spec; not yet appr
 | 73 | Airglow & night-side atmosphere | Thin emissive airglow layer (green and red) at the limb when seen from orbit at night, consistent with Scatterer's sky. | 5 | Low | M | P8 | 800 |
 | 111 | Atmospheric refraction & scintillation | Setting sun flattened and reddened by refraction, green flash, stars twinkling and dimming near the horizon, stars refracted through the limb when seen from orbit. | 5 (Scatterer), 85 | Low | M | P7 | 1,300 |
 | 112 | Atmospheric optics | Rainbows in rain, glories on cloud tops, 22° halos and sun dogs in ice cloud, cloud iridescence near the sun. Driven by EVE cloud type and sun angle. | 5 (EVE) | Low | M | P7 | 2,000 |
-| 114 | Height fog & valley mist | Low ground fog pooling in valleys at dawn and over water, burning off in sunlight, consistent with Scatterer's atmosphere. | 5, 20 | Low–Med | M | P7 | 1,500 |
+| 114 | Height fog & valley mist | Low ground fog pooling in valleys at dawn, burning off in sunlight, consistent with Scatterer's atmosphere. | 5, 20 | Low–Med | M | P7 | 1,500 |
 | 131 | Plume & plasma light in clouds | Engine plumes and reentry plasma light up the clouds they pass through, e.g. a night launch glowing orange inside the cloud deck. Needs an EVE hook. | 43, 5 (EVE) | Med | H | P7 | 1,300 |
 
 **Subtotal: 13,900**
@@ -192,7 +192,6 @@ Brainstorming artifact, 2026-09-29. Input to the architecture spec; not yet appr
 | 76 | Ground interaction | Dust, sand and snow kicked up under engines and rotor/prop wash, material chosen from biome and terrain. | 74 | Med | M | P7 | 1,600 |
 | 77 | Dynamic decals | Deferred decals for pad scorch, landing-burn scorch, touchdown and tyre marks. Coordinates with KopernicusExpansion footprints. | 1 | Low | L | P7 | 1,300 |
 | 78 | Ablation sparks & reentry debris | Glowing ablator particles shed from heat shields at peak heating, streaming into Firefly's plasma trail. | 74, 5 | Low | L | P7 | 900 |
-| 79 | Splashes, spray & wakes | Splashdown and engine-over-water spray; wake and foam trails on Scatterer's ocean. | 74, 5 | Med | H | P7 | 2,200 |
 | 124 | Transparency correctness | Weighted-blended order-independent transparency and better sorting for overlapping plumes, smoke, glass and contrails, so they stop popping in front of or behind each other. | 1, 67 | Med | M | P7 | 1,800 |
 | 129 | Vacuum-correct ejecta | On airless bodies, regolith kicked up by engines flies in clean ballistic arcs and drops instantly with no billowing: the Apollo look. | 76 | Low | L | P7 | 1,200 |
 | 130 | Venting & ice-crystal glitter | Propellant vents, boil-off and RCS puffs in orbit flash-freeze into glittering ice-crystal clouds that catch the sun. | 74, 65 | Low | L | P7 | 900 |
@@ -213,7 +212,6 @@ Brainstorming artifact, 2026-09-29. Input to the architecture spec; not yet appr
 | 86 | Nebula objects | Nebulae as real world objects with a position, size and orientation: emission from ionised gas (H-alpha red, O-III teal, S-II), dust that absorbs and reddens light behind it, lit by embedded or nearby stars. From outside they are glowing clouds with correct parallax; flown into, they become local fog and glowing filaments around the vessel. | 140, 20 | Med | M | P10 | 4,500 |
 | 87 | Galaxy & HDR skybox | HDR background with galactic band and dust lanes; converts existing LDR skyboxes (e.g. Kcalbeloh's) to calibrated HDR. | 24 | Low | M | P8 | 1,200 |
 | 88 | Planetary rings | Forward-scattering lit rings, planet shadow on rings and ring shadow on planet and vessels, particle sparkle up close. Coordinates with Kopernicus rings. | 5, 35 | Low–Med | M | P8 | 1,800 |
-| 89 | Auroras | Volumetric, animated aurora curtains at magnetic poles; per-body config. | 6 | Med | L | P8 | 1,200 |
 | 90 | Comet tails | Curved sunlit dust tail and straight blue anti-sunward ion tail for KSP's comets. | 34 | Low–Med | L | P8 | 1,500 |
 | 91 | Distant vessel impostors | Vessels beyond loaded range drawn as sunlit glints or impostors with correct brightness (reference shot B). | 24 | Low | M | P8 | 900 |
 
