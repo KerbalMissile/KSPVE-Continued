@@ -19,7 +19,7 @@ set "DOTNET=dotnet"
 if exist "E:\Tools\dotnet\dotnet.exe" set "DOTNET=E:\Tools\dotnet\dotnet.exe"
 if defined KSPVE_DOTNET set "DOTNET=%KSPVE_DOTNET%"
 
-set "UNITY=C:\Program Files\Unity\Hub\Editor\2019.4.41f1\Editor\Unity.exe"
+set "UNITY=C:\Program Files\Unity\Hub\Editor\2019.4.18f1\Editor\Unity.exe"
 if defined UNITY_EXE set "UNITY=%UNITY_EXE%"
 
 set "OUT=%ROOT%\out"
