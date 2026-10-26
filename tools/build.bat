@@ -47,7 +47,7 @@ if defined NOSHADERS (
 if not exist "%UNITY%" ( echo Unity not found: %UNITY% & exit /b 1 )
 if not exist "%SHADEROUT%" mkdir "%SHADEROUT%"
 set "LOG=%SHADEROUT%\unity-build.log"
-del /q "%BUNDLE%" "%BUNDLE%.contents.txt" "%LOG%" 2>nul
+del /q "%SHADEROUT%\*.manifest" "%SHADEROUT%\shaders" "%BUNDLE%" "%BUNDLE%.contents.txt" "%LOG%" 2>nul
 
 rem No -nographics: Unity needs a real D3D11 device to validate compute kernels.
 start "" /wait "%UNITY%" -batchmode -quit -projectPath "%ROOT%\unity\KSPVEShaders" -executeMethod KSPVE.Build.BuildBundles.BuildAll -kspveOut "%SHADEROUT%" -logFile "%LOG%"
