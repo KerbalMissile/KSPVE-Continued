@@ -53,7 +53,7 @@ internal sealed class SettingsWindow : MonoBehaviour
     {
         if (!_visible || _hiddenForScreenshot || Engine.Instance == null) return;
         GUI.skin = HighLogic.Skin;
-        _rect = GUILayout.Window(WindowId, _rect, Draw, "KSPVE " + Engine.Version + "   (Ctrl+Alt+V)");
+        _rect = GUILayout.Window(WindowId, _rect, Draw, "KSPVE-Continued " + Engine.Version + "   (Ctrl+Alt+V)");
         if (_rect.Contains(Event.current.mousePosition)) InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, LockId);
         else ReleaseLock();
     }
