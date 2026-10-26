@@ -150,7 +150,7 @@ internal sealed class StarRenderer : MonoBehaviour
             CelestialBody b = bodies[i];
             if (b == null || b.scaledBody == null || !StarWorld.IsStar(b) || OwnedByAnotherObject(b)) continue;
             StarEntry e = StarWorld.Entry(b);
-            if (e != null && e.Profile.Enabled && !e.Profile.IsBrownDwarf) _stars.Add(e);
+            if (e != null && e.Profile.Enabled) _stars.Add(e);
         }
     }
 

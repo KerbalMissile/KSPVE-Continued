@@ -412,8 +412,6 @@ internal static partial class Program
         if (args.Length > 0 && args[0] == "starfx") return StarFx.Run(args);
         if (args.Length > 0 && args[0] == "structure") return StructurePreview.Run(args);
         if (args.Length > 0 && args[0] == "procedural") return ProceduralTool.Run(args);
-        if (args.Length > 0 && args[0] == "eve-info") return EveInfo.Run(args);
-        if (args.Length > 0 && args[0] == "browndwarf") return BrownDwarfPreview.Run(args);
         if (args.Length > 0 && args[0] == "palette")
         {
             foreach (float k in new[] { 2500f, 3500f, 4500f, 6000f, 7500f, 9000f })

@@ -24,12 +24,10 @@
     <Compile Include="..\..\src\KSPVE.Pure\Space\StreamShape.cs" Link="Pure\StreamShape.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Space\SolidRocks.cs" Link="Pure\SolidRocks.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Config\CfgParser.cs" Link="Pure\CfgParser.cs" />
-    <Compile Include="..\..\src\KSPVE.Pure\Clouds\*.cs" LinkBase="Pure\Clouds" />
     <Compile Include="..\..\src\KSPVE.Pure\Textures\*.cs" LinkBase="Pure\Textures" />
     <!-- Structures made of particles on real orbits (evaporating planets, impact debris, synestias ...). -->
     <Compile Include="..\..\src\KSPVE.Pure\Space\Particles\*.cs" LinkBase="Pure\Particles" />
     <!-- The fluid-dynamics atmospheres of brown dwarfs (the browndwarf command). -->
-    <Compile Include="..\..\src\KSPVE.Pure\Fluids\*.cs" LinkBase="Pure\Fluids" />
     <Compile Include="..\..\src\KSPVE.Pure\ColorScience\Rgb.cs" Link="Pure\Rgb.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\ColorScience\ColorTemperature.cs" Link="Pure\ColorTemperature.cs" />
     <Compile Include="..\..\src\KSPVE.Pure\Stars\*.cs" LinkBase="Pure\Stars" />
