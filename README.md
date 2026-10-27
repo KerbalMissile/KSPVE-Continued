@@ -4,7 +4,7 @@ KSVPE-Reworked is a fork of the original KSPVE. This fork is made to be less blo
 
 ---
 
-Goals:
+**Goals:**
 
 - Optimize the mod
 - Remove unnecessary features & de-bloat the mod
@@ -12,8 +12,14 @@ Goals:
 - Make the codebase more organized
 - Rewrite the code slowly to make it less / not vibecoded
 
+**What's Been Done:**
+
+- De-bloat (about ~80% finished)
+- Unify the names (100% finished)
+- Organize Codebase (~5% finished)
+
 ---
 
-License:
+**License:**
 
 GPL-v3.0
